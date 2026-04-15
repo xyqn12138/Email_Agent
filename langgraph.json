@@ -1,0 +1,9 @@
+{
+  "$schema": "https://langgraph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "./src/agent/agent.py:agent"
+  },
+  "env": ".env",
+  "image_distro": "wolfi"
+}
