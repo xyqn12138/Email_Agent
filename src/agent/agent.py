@@ -22,3 +22,5 @@ prompt = build_prompt(input_text)
 response = chat_model.stream(prompt)
 for chunk in response:
     print(chunk.content, end="", flush=True)
+
+ 
