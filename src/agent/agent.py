@@ -1,4 +1,4 @@
-from models.my_model import chat_model
+from models.chat_model import chat_model
 from persona.prompt_builder import build_prompt
 
 input_text = """叙的来信：你好呀。

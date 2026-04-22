@@ -10,7 +10,7 @@ def get_project_root() -> str:
     Returns:
         项目根路径字符串
     """
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[3]
 
 def get_absolute_path(relative_path: str) -> str:
     """
@@ -25,5 +25,5 @@ def get_absolute_path(relative_path: str) -> str:
     return Path(get_project_root()) / relative_path
 
 if __name__ == "__main__":
-    path = get_absolute_path(r"src\utils\path_handler.py")
+    path = get_absolute_path(r"src\agent\Loader\doc_loader.py")
     print(path)

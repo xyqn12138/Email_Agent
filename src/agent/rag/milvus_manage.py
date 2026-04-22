@@ -1,8 +1,9 @@
 from pymilvus import MilvusClient, DataType, Function, FunctionType
 from dotenv import load_dotenv
+from agent.utils.logger_handler import get_logger
 import os
 load_dotenv()
-
+logger_handler = get_logger()
 class MilvusManage:
     def __init__(self):
         self.host = os.getenv('MILVUS_HOST')
@@ -51,6 +52,7 @@ class MilvusManage:
         # Auto-merging 所需层级字段
         schema.add_field("chunk_id", DataType.VARCHAR, max_length=512)
         schema.add_field("parent_chunk_id", DataType.VARCHAR, max_length=512)
+        schema.add_field("root_chunk_id", DataType.VARCHAR, max_length=512)
         schema.add_field("chunk_level", DataType.INT64)
 
         bm25_function = Function(
@@ -87,6 +89,8 @@ class MilvusManage:
             schema=schema,
             index_params=index_params
         )
+        logger_handler.info(f"Collection '{self.collection_name}' created successfully with schema and indexes.")
+        
 
     def insert(self, data: list[dict]):
         """插入数据到 Milvus"""

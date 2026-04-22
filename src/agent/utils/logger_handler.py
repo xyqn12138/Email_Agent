@@ -5,12 +5,7 @@ from __future__ import annotations
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-
-try:
-	from src.utils.path_handler import get_absolute_path
-except ModuleNotFoundError:
-	# 兼容直接在 src/utils 目录下执行模块的场景
-	from path_handler import get_absolute_path
+from agent.utils.path_handler import get_absolute_path
 
 LOGGER_NAME = "email_agent"
 LOG_LEVEL = logging.INFO
@@ -70,4 +65,5 @@ def get_logger(name: str = LOGGER_NAME) -> logging.Logger:
 if __name__ == "__main__":
     logger = get_logger()
     logger.info("日志系统初始化成功！")
+
 
