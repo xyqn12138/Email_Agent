@@ -42,7 +42,7 @@ class MilvusManage:
         schema.add_field("text_sparse", DataType.SPARSE_FLOAT_VECTOR)
         
         # 文本和元数据字段
-        schema.add_field("text", DataType.VARCHAR, max_length=2000, enable_analyzer=True)
+        schema.add_field("text", DataType.VARCHAR, max_length=5120, enable_analyzer=True)
         schema.add_field("filename", DataType.VARCHAR, max_length=255)
         schema.add_field("file_type", DataType.VARCHAR, max_length=50)
         schema.add_field("file_path", DataType.VARCHAR, max_length=1024)
@@ -94,22 +94,22 @@ class MilvusManage:
 
     def insert(self, data: list[dict]):
         """插入数据到 Milvus"""
-        return self._get_client().insert(self.collection_name, data)
+        return self._get_connect().insert(self.collection_name, data)
 
     def delete(self, filter_expr: str):
         """删除数据"""
-        return self._get_client().delete(
+        return self._get_connect().delete(
             collection_name=self.collection_name,
             filter=filter_expr
         )
 
     def has_collection(self) -> bool:
         """检查集合是否存在"""
-        return self._get_client().has_collection(self.collection_name)
+        return self._get_connect().has_collection(self.collection_name)
 
     def drop_collection(self):
         """删除集合（用于重建 schema）"""
-        client = self._get_client()
+        client = self._get_connect()
         if client.has_collection(self.collection_name):
             client.drop_collection(self.collection_name)
 
