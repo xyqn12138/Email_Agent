@@ -1,30 +1,179 @@
-from typing import List, Dict
-import os
 import hashlib
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
+
 from agent.models.embedding_model import EmbeddingModel
-from agent.rag.text_splitter import ThreeLayerSplitter
-from agent.rag.milvus_manage import MilvusManage
+from agent.rag.Loader.base_loader import BaseLoader
+from agent.rag.splitter.base_splitter import BaseThreeLayerSplitter
 from agent.utils.logger_handler import get_logger
 from agent.utils.path_handler import get_absolute_path
 
 logger = get_logger()
 
+
+@dataclass(frozen=True)
+class PreparedDocument:
+    pipeline_name: str
+    loaded_content: Any
+    chunks: list[dict[str, Any]]
+    metadata: dict[str, Any]
+    content_fingerprint: str
+
+
+class BaseDocumentPipeline:
+    def __init__(self, *, name: str, loader: BaseLoader, splitter: BaseThreeLayerSplitter):
+        self.name = name
+        self.loader = loader
+        self.splitter = splitter
+
+    def supports(self, file_path: str) -> bool:
+        return self.loader.supports(file_path)
+
+    def prepare(self, file_path: str) -> PreparedDocument:
+        absolute_path = self.loader.validate_path(file_path)
+        loaded_content = self.loader.load(file_path)
+        metadata = self._build_document_metadata(absolute_path, loaded_content)
+        content_fingerprint = self._build_content_fingerprint(loaded_content)
+        doc_id = self._build_doc_id(content_fingerprint, metadata)
+        split_content = self.get_split_content(loaded_content)
+        chunks = self.splitter.split(split_content, metadata, doc_id=doc_id)
+        optimized_chunks = self.splitter.optimize_chunks(chunks)
+        return PreparedDocument(
+            pipeline_name=self.name,
+            loaded_content=loaded_content,
+            chunks=optimized_chunks,
+            metadata=metadata,
+            content_fingerprint=content_fingerprint,
+        )
+
+    def _build_document_metadata(self, absolute_path: Path, loaded_content: Any) -> dict[str, Any]:
+        metadata = {
+            "filename": absolute_path.name.lower(),
+            "file_path": str(absolute_path),
+            "file_type": self.loader.document_type,
+            "page_number": 0,
+        }
+        if isinstance(loaded_content, list) and loaded_content:
+            first_item = loaded_content[0]
+            for field in ("filename", "file_path", "file_type", "page_number"):
+                value = first_item.get(field)
+                if value is not None:
+                    metadata[field] = value
+        return metadata
+
+    def _build_content_fingerprint(self, loaded_content: Any) -> str:
+        content_text = self.serialize_loaded_content(loaded_content)
+        return hashlib.md5(content_text.encode("utf-8")).hexdigest()
+
+    def _build_doc_id(self, content_fingerprint: str, metadata: dict[str, Any]) -> str:
+        filename = metadata.get("filename") or "unknown"
+        return f"{filename}_{content_fingerprint[:12]}"
+
+    def serialize_loaded_content(self, loaded_content: Any) -> str:
+        if isinstance(loaded_content, list):
+            return "\n".join(item.get("text", "") for item in loaded_content)
+        return str(loaded_content or "")
+
+    def get_split_content(self, loaded_content: Any) -> Any:
+        raise NotImplementedError
+
+
+class GenericDocumentPipeline(BaseDocumentPipeline):
+    def get_split_content(self, loaded_content: Any) -> str:
+        return self.serialize_loaded_content(loaded_content)
+
+
+class MarkdownDocumentPipeline(BaseDocumentPipeline):
+    def get_split_content(self, loaded_content: Any) -> list[dict[str, Any]]:
+        return loaded_content
+
+
+@dataclass(frozen=True)
+class PipelineRegistration:
+    name: str
+    suffixes: tuple[str, ...]
+    builder: Callable[[], BaseDocumentPipeline]
+
+    def supports(self, file_path: str) -> bool:
+        return Path(file_path).suffix.lower() in self.suffixes
+
+
+class PipelineRegistry:
+    def __init__(self):
+        self._registrations: list[PipelineRegistration] = []
+
+    def register(self, *, name: str, suffixes: tuple[str, ...], builder: Callable[[], BaseDocumentPipeline]) -> None:
+        self._registrations.append(PipelineRegistration(name=name, suffixes=suffixes, builder=builder))
+
+    def resolve(self, file_path: str) -> BaseDocumentPipeline:
+        for registration in self._registrations:
+            if registration.supports(file_path):
+                pipeline = registration.builder()
+                if pipeline.supports(file_path):
+                    return pipeline
+        raise ValueError(f"No pipeline registered for file: {file_path}")
+
+
+def build_default_pipeline_registry() -> PipelineRegistry:
+    registry = PipelineRegistry()
+    registry.register(
+        name="markdown",
+        suffixes=(".md", ".markdown"),
+        builder=lambda: MarkdownDocumentPipeline(
+            name="markdown",
+            loader=_build_markdown_loader(),
+            splitter=_build_markdown_splitter(),
+        )
+    )
+    registry.register(
+        name="document",
+        suffixes=(".pdf", ".docx", ".doc", ".xlsx", ".xls"),
+        builder=lambda: GenericDocumentPipeline(
+            name="document",
+            loader=_build_document_loader(),
+            splitter=_build_text_splitter(),
+        )
+    )
+    return registry
+
+
+def _build_markdown_loader() -> BaseLoader:
+    from agent.rag.Loader.md_loader import MarkdownLoader
+
+    return MarkdownLoader()
+
+
+def _build_markdown_splitter() -> BaseThreeLayerSplitter:
+    from agent.rag.splitter.md_splitter import MarkdownThreeLayerSplitter
+
+    return MarkdownThreeLayerSplitter()
+
+
+def _build_document_loader() -> BaseLoader:
+    from agent.rag.Loader.doc_loader import DocumentLoader
+
+    return DocumentLoader()
+
+
+def _build_text_splitter() -> BaseThreeLayerSplitter:
+    from agent.rag.splitter.text_splitter import ThreeLayerSplitter
+
+    return ThreeLayerSplitter()
+
+
 class DataEmbedding:
-    def __init__(self, model_name: str = "zhipuai", dimensions: int = 1024):
+    def __init__(self, model_name: str = "local", dimensions: int = 1024):
+        from agent.rag.milvus_manage import MilvusManage
+
         self.embedding_model = EmbeddingModel(model_name=model_name, dimensions=dimensions)
         self.milvus_manager = MilvusManage()
-        self.splitter = ThreeLayerSplitter()
         self.md5_file = get_absolute_path("src/agent/data/processed_md5.txt")
-        
-        # Ensure data directory exists
+        self.insert_batch_size = max(1, int(os.getenv("RAG_INSERT_BATCH_SIZE", "32")))
         os.makedirs(os.path.dirname(self.md5_file), exist_ok=True)
 
-    def _get_text_md5(self, text: str) -> str:
-        """计算文本的 MD5 值"""
-        return hashlib.md5(text.encode("utf-8")).hexdigest()
-
     def _is_processed(self, md5_val: str) -> bool:
-        """检查 MD5 是否已存在于持久化文件中"""
         if not os.path.exists(self.md5_file):
             return False
         with open(self.md5_file, "r", encoding="utf-8") as f:
@@ -32,95 +181,119 @@ class DataEmbedding:
         return md5_val in processed_md5s
 
     def _mark_as_processed(self, md5_val: str):
-        """将 MD5 值存入持久化文件"""
         with open(self.md5_file, "a", encoding="utf-8") as f:
             f.write(md5_val + "\n")
 
-    def process_document(self, doc_input: str | List[Dict], metadata: Dict = None):
-        """
-        Process document: split into 3 layers, generate embeddings, and store in Milvus.
-        Includes MD5 check to skip processed content.
-        
-        doc_input: Can be raw text string or a list of dictionaries from DocumentLoader.
-        """
-        metadata = metadata or {}
-        # 1. Extract text if input is a list (from DocumentLoader)
-        if isinstance(doc_input, list):
-            doc_text = "\n".join([d.get("text", "") for d in doc_input])
-            # Merge metadata if not provided
-            if not metadata and doc_input:
-                metadata = {
-                    "filename": doc_input[0].get("filename"),
-                    "file_type": doc_input[0].get("file_type"),
-                    "file_path": doc_input[0].get("file_path"),
-                }
-        else:
-            doc_text = doc_input
+    def _chunk_items(self, items: list[dict[str, Any]], chunk_size: int) -> list[list[dict[str, Any]]]:
+        return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
-        # 2. MD5 Check
-        doc_md5 = self._get_text_md5(doc_text)
-        if self._is_processed(doc_md5):
-            logger.info(f"Document '{metadata.get('filename', 'unknown')}' with MD5 {doc_md5} already processed. Skipping.")
-            return
+    def _ensure_collection(self, dense_dim: int):
+        if not self.milvus_manager.has_collection():
+            self.milvus_manager.create_collection(dense_dim=dense_dim)
 
-        # 3. Split text into 3 layers
-        all_chunks = self.splitter.split(doc_text, metadata)
-        
-        # 2. Filter layer 2 chunks (deduplication)
-        l2_chunks = [c for c in all_chunks if c["chunk_level"] == 2]
-        l2_chunks = self.splitter.deduplicate_layer2(l2_chunks)
-        
-        # Combine all chunks back (if deduplication removed any)
-        other_chunks = [c for c in all_chunks if c["chunk_level"] != 2]
-        processed_chunks = l2_chunks + other_chunks
+    def _filter_uninserted_chunks(self, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        pending_chunks = []
+        for chunk in chunks:
+            if self.milvus_manager.has_chunk(chunk["chunk_id"]):
+                continue
+            pending_chunks.append(chunk)
+        return pending_chunks
 
-        # 3. Generate dense embeddings (BM25 is handled by Milvus automatically via Function)
-        logger.info(f"Generating dense embeddings for {len(processed_chunks)} chunks...")
-        
-        texts = [c["text"] for c in processed_chunks]
-        dense_embeddings = self.embedding_model.embed_documents(texts)
-
-        # 4. Prepare data for Milvus
+    def _build_milvus_batch(self, chunks: list[dict[str, Any]], dense_embeddings: list[list[float]], start_idx: int) -> list[dict]:
         milvus_data = []
-        for i, chunk in enumerate(processed_chunks):
+        for offset, chunk in enumerate(chunks):
             chunk_data = {
                 "text": chunk["text"],
-                "text_dense": dense_embeddings[i],
-                # text_sparse is generated by Milvus function
+                "text_dense": dense_embeddings[offset],
                 "filename": chunk.get("filename") or "",
                 "file_type": chunk.get("file_type") or "",
                 "file_path": chunk.get("file_path") or "",
                 "page_number": int(chunk.get("page_number") or 0),
-                "chunk_idx": i,
+                "chunk_idx": start_idx + offset,
                 "chunk_id": chunk["chunk_id"],
                 "parent_chunk_id": chunk.get("parent_chunk_id") or "",
                 "root_chunk_id": chunk.get("root_chunk_id") or "",
                 "chunk_level": int(chunk["chunk_level"]),
             }
             milvus_data.append(chunk_data)
+        return milvus_data
 
-        # 5. Insert into Milvus
-        if not self.milvus_manager.has_collection():
-            self.milvus_manager.create_collection(dense_dim=len(dense_embeddings[0]))
-        
-        logger.info(f"Inserting {len(milvus_data)} chunks into Milvus...")
-        self.milvus_manager.insert(milvus_data)
-        
-        # 6. Mark as processed
-        self._mark_as_processed(doc_md5)
-        
+    def process_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        content_fingerprint: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        metadata = metadata or {}
+        if self._is_processed(content_fingerprint):
+            logger.info(
+                f"Document '{metadata.get('filename', 'unknown')}' with MD5 {content_fingerprint} already processed. Skipping."
+            )
+            return
+
+        if not chunks:
+            logger.warning("No chunks prepared for ingestion, skipping.")
+            return
+
+        pending_chunks = self._filter_uninserted_chunks(chunks)
+
+        if not pending_chunks:
+            self._mark_as_processed(content_fingerprint)
+            logger.info(f"Document '{metadata.get('filename', 'unknown')}' already fully inserted. Marked as processed.")
+            return
+
+        logger.info(f"Preparing to insert {len(pending_chunks)} pending chunks out of {len(chunks)} total chunks.")
+
+        for batch_index, batch_chunks in enumerate(self._chunk_items(pending_chunks, self.insert_batch_size), start=1):
+            logger.info(f"Embedding batch {batch_index}, chunk count: {len(batch_chunks)}")
+            texts = [chunk["text"] for chunk in batch_chunks]
+            dense_embeddings = self.embedding_model.embed_documents(texts)
+            self._ensure_collection(dense_dim=len(dense_embeddings[0]))
+            milvus_data = self._build_milvus_batch(batch_chunks, dense_embeddings, start_idx=(batch_index - 1) * self.insert_batch_size)
+            logger.info(f"Inserting batch {batch_index} into Milvus...")
+            self.milvus_manager.insert(milvus_data)
+
+        self._mark_as_processed(content_fingerprint)
         logger.info("Insertion complete and MD5 marked.")
 
     def close(self):
         self.milvus_manager.disconnect()
 
+
+class RAGPipelineService:
+    def __init__(
+        self,
+        model_name: str = "local",
+        dimensions: int = 1024,
+        registry: PipelineRegistry | None = None,
+        data_embedding: DataEmbedding | None = None,
+    ):
+        self.registry = registry or build_default_pipeline_registry()
+        self.data_embedding = data_embedding or DataEmbedding(model_name=model_name, dimensions=dimensions)
+
+    def ingest_file(self, file_path: str) -> PreparedDocument:
+        pipeline = self.registry.resolve(file_path)
+        prepared_document = pipeline.prepare(file_path)
+        logger.info(f"Using pipeline '{pipeline.name}' for file '{file_path}'.")
+        self.data_embedding.process_chunks(
+            prepared_document.chunks,
+            content_fingerprint=prepared_document.content_fingerprint,
+            metadata=prepared_document.metadata,
+        )
+        return prepared_document
+
+    def close(self) -> None:
+        self.data_embedding.close()
+
+
 if __name__ == "__main__":
-    # Test
-    processor = DataEmbedding()
-    from agent.Loader.doc_loader import DocumentLoader
-    doc_loader = DocumentLoader()
-
-    test_text = doc_loader.load(r"src\agent\data\test.pdf")
-    processor.process_document(test_text, {"filename": "test.pdf", "file_type": "pdf"})
-    processor.close()
-
+    service = RAGPipelineService(model_name="dashscope")
+    try:
+        prepared = service.ingest_file(r"src\agent\data\minerU.md")
+        print(prepared.pipeline_name)
+        print(prepared.metadata)
+        print(prepared.loaded_content[0])
+        print(prepared.chunks[0])
+    finally:
+        service.close()

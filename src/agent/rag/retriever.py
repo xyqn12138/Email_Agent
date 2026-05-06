@@ -32,7 +32,7 @@ class Retriever:
         client = self.milvus_manager._get_connect()
         
         # 1. Generate embeddings
-        dense_vec = self.embedding_model.embed_query(query)
+        dense_vec = self.embedding_model.embed_queries(query)[0]
         
         # 2. Prepare search requests for Layers 2 and 3
         # Search Layer 2 & 3
