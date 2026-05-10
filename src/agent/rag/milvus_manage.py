@@ -36,16 +36,18 @@ class MilvusManage:
         schema.add_field("id", DataType.INT64, is_primary=True, auto_id=True)
         schema.add_field("text_dense", DataType.FLOAT_VECTOR, dim=dense_dim)
         schema.add_field("text_sparse", DataType.SPARSE_FLOAT_VECTOR)
-        schema.add_field("text", DataType.VARCHAR, max_length=5120, enable_analyzer=True)
+        schema.add_field("text", DataType.VARCHAR, max_length=16384, enable_analyzer=True)
+        schema.add_field("doc_id", DataType.VARCHAR, max_length=512)
         schema.add_field("filename", DataType.VARCHAR, max_length=255)
-        schema.add_field("file_type", DataType.VARCHAR, max_length=50)
         schema.add_field("file_path", DataType.VARCHAR, max_length=1024)
-        schema.add_field("page_number", DataType.INT64)
-        schema.add_field("chunk_idx", DataType.INT64)
         schema.add_field("chunk_id", DataType.VARCHAR, max_length=512)
         schema.add_field("parent_chunk_id", DataType.VARCHAR, max_length=512)
         schema.add_field("root_chunk_id", DataType.VARCHAR, max_length=512)
         schema.add_field("chunk_level", DataType.INT64)
+        schema.add_field("title_path", DataType.VARCHAR, max_length=1024)
+        schema.add_field("title", DataType.VARCHAR, max_length=512)
+        schema.add_field("content_type", DataType.VARCHAR, max_length=64)
+        schema.add_field("page_number", DataType.INT64)
 
         bm25_function = Function(
             name="text_bm25_emb",

@@ -52,12 +52,10 @@ class BaseDocumentPipeline:
         metadata = {
             "filename": absolute_path.name.lower(),
             "file_path": str(absolute_path),
-            "file_type": self.loader.document_type,
-            "page_number": 0,
         }
         if isinstance(loaded_content, list) and loaded_content:
             first_item = loaded_content[0]
-            for field in ("filename", "file_path", "file_type", "page_number"):
+            for field in ("filename", "file_path"):
                 value = first_item.get(field)
                 if value is not None:
                     metadata[field] = value
@@ -192,12 +190,14 @@ class DataEmbedding:
             self.milvus_manager.create_collection(dense_dim=dense_dim)
 
     def _filter_uninserted_chunks(self, chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        pending_chunks = []
-        for chunk in chunks:
-            if self.milvus_manager.has_chunk(chunk["chunk_id"]):
-                continue
-            pending_chunks.append(chunk)
-        return pending_chunks
+        all_ids = [chunk["chunk_id"] for chunk in chunks]
+        existing: set[str] = set()
+        for i in range(0, len(all_ids), 100):
+            batch = all_ids[i : i + 100]
+            rows = self.milvus_manager.query_by_chunk_ids(batch, output_fields=["chunk_id"])
+            for row in rows:
+                existing.add(row["chunk_id"])
+        return [chunk for chunk in chunks if chunk["chunk_id"] not in existing]
 
     def _build_milvus_batch(self, chunks: list[dict[str, Any]], dense_embeddings: list[list[float]], start_idx: int) -> list[dict]:
         milvus_data = []
@@ -205,15 +205,17 @@ class DataEmbedding:
             chunk_data = {
                 "text": chunk["text"],
                 "text_dense": dense_embeddings[offset],
+                "doc_id": chunk.get("doc_id") or "",
                 "filename": chunk.get("filename") or "",
-                "file_type": chunk.get("file_type") or "",
                 "file_path": chunk.get("file_path") or "",
-                "page_number": int(chunk.get("page_number") or 0),
-                "chunk_idx": start_idx + offset,
                 "chunk_id": chunk["chunk_id"],
                 "parent_chunk_id": chunk.get("parent_chunk_id") or "",
                 "root_chunk_id": chunk.get("root_chunk_id") or "",
                 "chunk_level": int(chunk["chunk_level"]),
+                "title_path": chunk.get("title_path") or "",
+                "title": chunk.get("title") or "",
+                "content_type": chunk.get("content_type") or "",
+                "page_number": int(chunk.get("page_number") or 0),
             }
             milvus_data.append(chunk_data)
         return milvus_data

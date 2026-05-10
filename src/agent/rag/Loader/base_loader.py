@@ -24,8 +24,6 @@ class BaseLoader(ABC):
         metadata = {
             "filename": absolute_path.name.lower(),
             "file_path": str(absolute_path),
-            "file_type": self.document_type,
-            "page_number": 0,
         }
         metadata.update(extra)
         return metadata

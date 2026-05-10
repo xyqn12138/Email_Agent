@@ -1,9 +1,12 @@
 import io
 import os
+import shutil
+import tempfile
 import time
 import zipfile
 from pathlib import Path
 
+import pypdf
 import requests
 from dotenv import load_dotenv
 
@@ -17,6 +20,7 @@ logger = get_logger()
 DEFAULT_BASE_URL = "https://mineru.net"
 POLL_INTERVAL = 5
 MAX_POLL_ATTEMPTS = 360
+MAX_PAGES_PER_REQUEST = 200
 
 
 class MinerUParser:
@@ -55,19 +59,20 @@ class MinerUParser:
                 break
         return url.rstrip("/")
 
-    def _request_upload_url(self, filename: str) -> tuple[str, str]:
+    def _request_upload_url(self, filename: str, page_ranges: str | None = None) -> tuple[str, str]:
         url = f"{self.base_url}/api/v4/file-urls/batch"
+        file_entry: dict = {
+            "name": filename,
+            "is_ocr": self.is_ocr,
+        }
+        if page_ranges:
+            file_entry["page_ranges"] = page_ranges
         payload = {
             "enable_formula": self.enable_formula,
             "enable_table": self.enable_table,
             "language": self.language,
             "model_version": self.model_version,
-            "files": [
-                {
-                    "name": filename,
-                    "is_ocr": self.is_ocr,
-                }
-            ],
+            "files": [file_entry],
         }
         resp = requests.post(url, headers=self._headers, json=payload, timeout=30)
         if resp.status_code != 200:
@@ -131,27 +136,29 @@ class MinerUParser:
             zf.extractall(output_dir)
 
     @staticmethod
+    def _get_pdf_page_count(file_path: Path) -> int:
+        reader = pypdf.PdfReader(str(file_path))
+        return len(reader.pages)
+
+    @staticmethod
+    def _build_page_ranges(total_pages: int, chunk_size: int = MAX_PAGES_PER_REQUEST) -> list[str]:
+        ranges = []
+        for start in range(1, total_pages + 1, chunk_size):
+            end = min(start + chunk_size - 1, total_pages)
+            ranges.append(f"{start}-{end}")
+        return ranges
+
+    @staticmethod
     def _find_md_file(directory: Path) -> Path | None:
         for md_file in directory.rglob("*.md"):
             return md_file
         return None
 
-    def parse(self, file_path: str, output_dir: str | None = None) -> Path:
-        absolute_path = Path(get_absolute_path(file_path))
-        if not absolute_path.exists():
-            raise FileNotFoundError(f"File not found: {absolute_path}")
-
-        filename = absolute_path.name
-        stem = absolute_path.stem
-
-        if output_dir is None:
-            target_dir = Path(get_absolute_path(f"data/{stem}"))
-        else:
-            target_dir = Path(output_dir)
-
-        logger.info(f"Uploading '{filename}' to MinerU...")
-        batch_id, upload_url = self._request_upload_url(filename)
-        self._upload_file(upload_url, absolute_path)
+    def _parse_single(self, file_path: Path, output_dir: Path, page_ranges: str | None = None) -> Path:
+        filename = file_path.name
+        logger.info(f"Uploading '{filename}' to MinerU" + (f" (pages: {page_ranges})" if page_ranges else "") + "...")
+        batch_id, upload_url = self._request_upload_url(filename, page_ranges)
+        self._upload_file(upload_url, file_path)
         logger.info(f"File uploaded successfully, batch_id={batch_id}")
 
         logger.info("Waiting for MinerU extraction to complete...")
@@ -161,19 +168,104 @@ class MinerUParser:
         if not zip_url:
             raise RuntimeError("MinerU task completed but no download URL was returned")
 
-        logger.info(f"Downloading extraction results to '{target_dir}'...")
-        self._download_and_extract_zip(zip_url, target_dir)
+        logger.info(f"Downloading extraction results to '{output_dir}'...")
+        self._download_and_extract_zip(zip_url, output_dir)
 
-        md_file = self._find_md_file(target_dir)
+        md_file = self._find_md_file(output_dir)
         if md_file:
             logger.info(f"Markdown file saved: {md_file}")
         else:
             logger.warning("No markdown file found in the extraction archive")
 
+        return output_dir
+
+    @staticmethod
+    def _merge_markdowns(part_dirs: list[Path], merged_md_path: Path) -> None:
+        contents = []
+        for part_dir in part_dirs:
+            md_file = None
+            for candidate in part_dir.rglob("*.md"):
+                md_file = candidate
+                break
+            if md_file:
+                text = md_file.read_text(encoding="utf-8")
+                contents.append(text)
+            else:
+                logger.warning(f"No markdown file found in {part_dir}")
+
+        merged_md_path.parent.mkdir(parents=True, exist_ok=True)
+        merged_md_path.write_text("\n\n".join(contents), encoding="utf-8")
+        logger.info(f"Merged markdown saved: {merged_md_path}")
+
+    def parse(self, file_path: str, output_dir: str | None = None) -> Path:
+        absolute_path = Path(get_absolute_path(file_path))
+        if not absolute_path.exists():
+            raise FileNotFoundError(f"File not found: {absolute_path}")
+
+        stem = absolute_path.stem
+
+        if output_dir is None:
+            target_dir = Path(get_absolute_path(f"data/{stem}"))
+        else:
+            target_dir = Path(output_dir)
+
+        if absolute_path.suffix.lower() == ".pdf":
+            total_pages = self._get_pdf_page_count(absolute_path)
+            logger.info(f"PDF has {total_pages} pages")
+
+            if total_pages > MAX_PAGES_PER_REQUEST:
+                return self._parse_large_pdf(absolute_path, target_dir, total_pages)
+
+        self._parse_single(absolute_path, target_dir)
         return target_dir
+
+    def _parse_large_pdf(self, file_path: Path, target_dir: Path, total_pages: int) -> Path:
+        page_ranges = self._build_page_ranges(total_pages, MAX_PAGES_PER_REQUEST)
+        num_parts = len(page_ranges)
+        logger.info(f"PDF exceeds {MAX_PAGES_PER_REQUEST} pages, splitting into {num_parts} batches")
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="mineru_split_"))
+        part_dirs: list[Path] = []
+
+        try:
+            for idx, pr in enumerate(page_ranges, 1):
+                part_output = target_dir / f"part_{idx}"
+                part_dirs.append(part_output)
+                logger.info(f"--- Processing batch {idx}/{num_parts}: pages {pr} ---")
+                self._parse_single(file_path, part_output, page_ranges=pr)
+
+            merged_md = target_dir / f"{file_path.stem}.md"
+            self._merge_markdowns(part_dirs, merged_md)
+
+            self._consolidate_images(part_dirs, target_dir)
+
+        finally:
+            for part_dir in part_dirs:
+                if part_dir.exists():
+                    shutil.rmtree(part_dir, ignore_errors=True)
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        logger.info(f"All batches merged into: {target_dir}")
+        return target_dir
+
+    @staticmethod
+    def _consolidate_images(part_dirs: list[Path], target_dir: Path) -> None:
+        images_dir = target_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        for part_dir in part_dirs:
+            part_images = part_dir / "images"
+            if not part_images.exists():
+                continue
+            for img in part_images.iterdir():
+                if img.is_file():
+                    dest = images_dir / img.name
+                    if not dest.exists():
+                        shutil.copy2(str(img), str(dest))
 
 
 if __name__ == "__main__":
     parser = MinerUParser()
-    result_dir = parser.parse(r"src\agent\data\test.pdf")
+    result_dir = parser.parse(r"src\agent\data\计算机操作系统  第4版·微课视频版_9787302577614_15189771.pdf")
     print(f"Results saved to: {result_dir}")
