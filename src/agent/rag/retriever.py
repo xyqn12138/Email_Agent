@@ -8,8 +8,8 @@ import os
 logger = get_logger()
 
 SHORT_QUERY_THRESHOLD = int(os.getenv("RETRIEVE_SHORT_QUERY_THRESHOLD", "15"))
-DEFAULT_HYBRID_LIMIT = int(os.getenv("RETRIEVE_HYBRID_LIMIT", "10"))
-DEFAULT_RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "3"))
+DEFAULT_HYBRID_LIMIT = int(os.getenv("RETRIEVE_HYBRID_LIMIT", "15"))
+DEFAULT_RERANK_TOP_N = int(os.getenv("RERANK_TOP_N", "5"))
 
 _HYDE_PROMPT = (
     "请针对以下问题，从教材的角度写一段简短的知识点总结（不超过200字），"
@@ -18,7 +18,7 @@ _HYDE_PROMPT = (
 
 _REWRITE_PROMPT = (
     "你是一个搜索专家。请将以下用户查询改写为更适合在文档库中进行语义检索的表达方式，"
-    "保持原意，不要增加多余关键词。直接输出改写后的查询：\n\n查询：{query}"
+    "保持原意，但增加可能的同义关键词。直接输出改写后的查询：\n\n查询：{query}"
 )
 
 
@@ -236,7 +236,7 @@ class Retriever:
         self,
         query: str,
         limit: int = 5,
-        skip_rewrite: bool = True,
+        skip_rewrite: bool = False,
         use_hyde: bool = False,
     ) -> List[Dict]:
         logger.info(f"Retrieve: query='{query}', limit={limit}, skip_rewrite={skip_rewrite}, use_hyde={use_hyde}")

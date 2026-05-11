@@ -1,54 +1,33 @@
-"""LangGraph single-node graph template.
+from langchain.agents import create_agent
+from agent.models.chat_model import create_chat_model
+from agent.tools.web_tool import web_search
+from agent.tools.rag_tool import knowledge_base_search
+from agent.utils.logger_handler import get_logger
 
-Returns a predefined response. Replace logic and configuration as needed.
-"""
+logger = get_logger()
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Any, Dict
-
-from langgraph.graph import StateGraph
-from langgraph.runtime import Runtime
-from typing_extensions import TypedDict
-
-
-class Context(TypedDict):
-    """Context parameters for the agent.
-
-    Set these when creating assistants OR when invoking the graph.
-    See: https://langchain-ai.github.io/langgraph/cloud/how-tos/configuration_cloud/
-    """
-
-    my_configurable_param: str
-
-
-@dataclass
-class State:
-    """Input state for the agent.
-
-    Defines the initial structure of incoming data.
-    See: https://langchain-ai.github.io/langgraph/concepts/low_level/#state
-    """
-
-    changeme: str = "example"
-
-
-async def call_model(state: State, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """Process input and returns output.
-
-    Can use runtime context to alter behavior.
-    """
-    return {
-        "changeme": "output from call_model. "
-        f"Configured with {(runtime.context or {}).get('my_configurable_param')}"
-    }
-
-
-# Define the graph
-graph = (
-    StateGraph(State, context_schema=Context)
-    .add_node(call_model)
-    .add_edge("__start__", "call_model")
-    .compile(name="New Graph")
+SYSTEM_PROMPT = (
+    "你是一个个人超级知识库助手。你拥有以下工具：\n"
+    "1. knowledge_base_search：从个人知识库中检索教材、课件等学习资料。"
+    "当用户的问题涉及课程内容、教材知识点时，优先使用此工具。\n"
+    "2. web_search：搜索互联网获取最新信息。\n\n"
+    "使用规则：\n"
+    "- 优先从知识库检索，知识库没有相关内容时再使用网络搜索\n"
+    "- 回答要基于检索到的资料，不要编造\n"
+    "- 如果资料不足以回答，如实告知用户\n"
+    "- 回答使用中文，条理清晰"
 )
+
+
+def build_graph(provider: str | None = None, model: str | None = None):
+    llm = create_chat_model(provider=provider, model=model)
+    tools = [knowledge_base_search, web_search]
+    agent = create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=SYSTEM_PROMPT,
+    )
+    return agent
+
+
+graph = build_graph()

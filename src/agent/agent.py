@@ -1,58 +1,46 @@
-from .rag.retriever import Retriever
-from .tools.web_tool import web_search
-from .utils.logger_handler import get_logger
+from agent.graph import build_graph
+from agent.utils.logger_handler import get_logger
 
 logger = get_logger()
 
+SYSTEM_PROMPT = (
+    "你是一个个人超级知识库助手。你拥有以下工具：\n"
+    "1. knowledge_base_search：从个人知识库中检索教材、课件等学习资料。"
+    "当用户的问题涉及课程内容、教材知识点时，优先使用此工具。\n"
+    "2. web_search：搜索互联网获取最新信息。\n\n"
+    "使用规则：\n"
+    "- 优先从知识库检索，知识库没有相关内容时再使用网络搜索\n"
+    "- 回答要基于检索到的资料，不要编造\n"
+    "- 如果资料不足以回答，如实告知用户\n"
+    "- 回答使用中文，条理清晰"
+)
 
-def build_agent(provider: str | None = None, model: str | None = None):
-    from .models.chat_model import create_chat_model
-    llm = create_chat_model(provider=provider, model=model)
-    tools = [web_search]
-    llm_with_tools = llm.bind_tools(tools)
-    return llm_with_tools
 
+def run_chat():
+    agent = build_graph()
+    print("=== 个人超级知识库 Agent ===")
+    print("输入问题开始对话，输入 'quit' 退出\n")
 
-def ask_with_rag(question: str, provider: str | None = None, top_k: int = 3):
-    from .models.chat_model import create_chat_model
-    retriever = Retriever()
-    contexts = retriever.retrieve(question, limit=top_k)
+    while True:
+        try:
+            user_input = input("You: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n再见！")
+            break
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit", "q"):
+            print("再见！")
+            break
 
-    context_block = ""
-    for i, ctx in enumerate(contexts, 1):
-        context_block += (
-            f"\n---\n[{i}] {ctx['title_path']} (page {ctx['page_number']})\n"
-            f"{ctx['chunk3_text'] or ctx['search_hit']}\n"
-        )
-
-    prompt = (
-        "你是一个学习助手。根据以下参考资料回答用户问题。"
-        "如果参考资料不足以回答，请说明。\n\n"
-        f"参考资料：{context_block}\n\n"
-        f"用户问题：{question}"
-    )
-
-    llm = create_chat_model(provider=provider)
-    response = llm.invoke(prompt)
-    return response.content
+        try:
+            result = agent.invoke({"messages": [{"role": "user", "content": user_input}]})
+            ai_message = result["messages"][-1]
+            print(f"\nAgent: {ai_message.content}\n")
+        except Exception as e:
+            logger.error(f"Agent error: {e}")
+            print(f"\n[错误] {e}\n")
 
 
 if __name__ == "__main__":
-    question = "快速排序的时间复杂度是多少？"
-    print(f"=== Retrieval Only (no LLM) ===")
-    print(f"Query: {question}\n")
-
-    retriever = Retriever()
-    contexts = retriever.retrieve(question, limit=5, skip_rewrite=True)
-
-    for i, ctx in enumerate(contexts, 1):
-        print(f"--- [{i}] {ctx['title_path']} (page {ctx['page_number']}) ---")
-        print(f"  Level:   {ctx['level']}")
-        print(f"  File:    {ctx['filename']}")
-        if ctx['chunk1_text']:
-            print(f"  L1 (章): {ctx['chunk1_text'][:120]}...")
-        if ctx['chunk2_text']:
-            print(f"  L2 (节): {ctx['chunk2_text'][:120]}...")
-        hit_text = ctx['chunk3_text'] or ctx['search_hit']
-        print(f"  Hit:     {hit_text[:200]}...")
-        print()
+    run_chat()
