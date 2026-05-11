@@ -24,6 +24,7 @@ DEFAULT_LOCAL_BASE_URL = os.getenv(
 )
 DEFAULT_TIMEOUT = float(os.getenv("EMBEDDING_API_TIMEOUT", "120"))
 DEFAULT_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
+DEFAULT_MAX_TEXT_CHARS = int(os.getenv("EMBEDDING_MAX_TEXT_CHARS", "6000"))
 DEFAULT_QUERY_INSTRUCT = os.getenv(
     "EMBEDDING_QUERY_INSTRUCT",
     "Given a web search query, retrieve relevant passages that answer the query",
@@ -67,6 +68,11 @@ class BaseHTTPEmbeddingProvider:
     def _post_embeddings(self, *, url: str, headers: dict[str, str], payload: dict) -> list[list[float]]:
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+            if not response.ok:
+                raise RuntimeError(
+                    f"Embedding request failed: {response.status_code} {response.reason} | "
+                    f"url={url} | body={response.text[:500]}"
+                )
             response.raise_for_status()
         except RequestException as exc:
             raise RuntimeError(f"Embedding request failed: {exc}") from exc
@@ -183,6 +189,16 @@ class EmbeddingModel:
             return [texts]
         return texts
 
+    @staticmethod
+    def _truncate_texts(texts: list[str], max_chars: int) -> list[str]:
+        truncated = []
+        for t in texts:
+            if len(t) > max_chars:
+                truncated.append(t[:max_chars])
+            else:
+                truncated.append(t)
+        return truncated
+
     def _get_profile(self, *, is_query: bool) -> EmbeddingProfile:
         profiles = self.query_profiles if is_query else self.document_profiles
         profile = profiles.get(self.model_name)
@@ -200,6 +216,7 @@ class EmbeddingModel:
         normalized_texts = self._normalize_input(texts)
         if not normalized_texts:
             return []
+        normalized_texts = self._truncate_texts(normalized_texts, DEFAULT_MAX_TEXT_CHARS)
         provider = self._get_provider()
         profile = self._get_profile(is_query=is_query)
         return provider.embed(normalized_texts, profile=profile, dimensions=self.dimensions)

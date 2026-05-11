@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import shutil
 import tempfile
@@ -239,6 +240,8 @@ class MinerUParser:
 
             self._consolidate_images(part_dirs, target_dir)
 
+            self._merge_content_lists(part_dirs, page_ranges, target_dir)
+
         finally:
             for part_dir in part_dirs:
                 if part_dir.exists():
@@ -263,6 +266,43 @@ class MinerUParser:
                     dest = images_dir / img.name
                     if not dest.exists():
                         shutil.copy2(str(img), str(dest))
+
+    @staticmethod
+    def _find_content_list(directory: Path) -> Path | None:
+        direct = directory / "content_list.json"
+        if direct.exists():
+            return direct
+        for match in directory.glob("*_content_list.json"):
+            return match
+        return None
+
+    @staticmethod
+    def _merge_content_lists(
+        part_dirs: list[Path],
+        page_ranges: list[str],
+        target_dir: Path,
+    ) -> None:
+        merged_items: list[dict] = []
+        for part_dir, page_range in zip(part_dirs, page_ranges):
+            cl_path = MinerUParser._find_content_list(part_dir)
+            if not cl_path:
+                logger.warning(f"No content_list.json found in {part_dir}")
+                continue
+            with open(cl_path, encoding="utf-8") as f:
+                items = json.load(f)
+            start_page = int(page_range.split("-")[0]) - 1
+            for item in items:
+                item["page_idx"] = item.get("page_idx", 0) + start_page
+            merged_items.extend(items)
+
+        if not merged_items:
+            logger.warning("No content_list items collected from any batch")
+            return
+
+        output_path = target_dir / "content_list.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(merged_items, f, ensure_ascii=False, indent=2)
+        logger.info(f"Merged content_list saved: {output_path} ({len(merged_items)} items)")
 
 
 if __name__ == "__main__":

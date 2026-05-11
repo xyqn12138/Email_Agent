@@ -188,12 +188,15 @@ class Retriever:
 
         return final_contexts
 
-    def retrieve(self, query: str, limit: int = 5) -> List[Dict]:
+    def retrieve(self, query: str, limit: int = 5, skip_rewrite: bool = False) -> List[Dict]:
         """
         Complete retrieval pipeline.
         """
-        # 1. Query Rewriting
-        rewritten_query = self.rewrite_query(query)
+        # 1. Query Rewriting (skip when skip_rewrite=True)
+        if skip_rewrite:
+            rewritten_query = query
+        else:
+            rewritten_query = self.rewrite_query(query)
         
         # 2. Hybrid Search on L3 & L4
         search_results = self.hybrid_search(rewritten_query, limit=limit)
@@ -208,10 +211,7 @@ class Retriever:
 
 if __name__ == "__main__":
     retriever = Retriever()
-    results = retriever.retrieve("这篇文章提出了什么新算法？")
+    results = retriever.retrieve("快速排序的时间复杂度是多少？")
     for r in results:
-        print(f"File: {r['filename']}, Level: {r['level']}")
-        print(f"Chunk1: {r['chunk1_text'][:50]}...")
-        print(f"Chunk2: {r['chunk2_text'][:50]}...")
-        print(f"Search Hit: {r['search_hit'][:50]}...")
-        print("-" * 20)
+        print(r)
+        print("-" * 70)

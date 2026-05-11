@@ -101,10 +101,11 @@ class MarkdownLoader(BaseLoader):
     @staticmethod
     def _find_content_list(md_path: Path) -> Path | None:
         parent = md_path.parent
-        for pattern in ("content_list.json", "*_content_list.json"):
-            matches = sorted(parent.glob(pattern))
-            if matches:
-                return matches[0]
+        direct = parent / "content_list.json"
+        if direct.exists():
+            return direct
+        for match in parent.glob("*_content_list.json"):
+            return match
         return None
 
     @staticmethod

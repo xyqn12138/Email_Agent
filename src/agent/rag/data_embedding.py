@@ -2,7 +2,7 @@ import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from agent.models.embedding_model import EmbeddingModel
 from agent.rag.Loader.base_loader import BaseLoader
@@ -78,87 +78,20 @@ class BaseDocumentPipeline:
         raise NotImplementedError
 
 
-class GenericDocumentPipeline(BaseDocumentPipeline):
-    def get_split_content(self, loaded_content: Any) -> str:
-        return self.serialize_loaded_content(loaded_content)
-
-
 class MarkdownDocumentPipeline(BaseDocumentPipeline):
     def get_split_content(self, loaded_content: Any) -> list[dict[str, Any]]:
         return loaded_content
 
 
-@dataclass(frozen=True)
-class PipelineRegistration:
-    name: str
-    suffixes: tuple[str, ...]
-    builder: Callable[[], BaseDocumentPipeline]
-
-    def supports(self, file_path: str) -> bool:
-        return Path(file_path).suffix.lower() in self.suffixes
-
-
-class PipelineRegistry:
-    def __init__(self):
-        self._registrations: list[PipelineRegistration] = []
-
-    def register(self, *, name: str, suffixes: tuple[str, ...], builder: Callable[[], BaseDocumentPipeline]) -> None:
-        self._registrations.append(PipelineRegistration(name=name, suffixes=suffixes, builder=builder))
-
-    def resolve(self, file_path: str) -> BaseDocumentPipeline:
-        for registration in self._registrations:
-            if registration.supports(file_path):
-                pipeline = registration.builder()
-                if pipeline.supports(file_path):
-                    return pipeline
-        raise ValueError(f"No pipeline registered for file: {file_path}")
-
-
-def build_default_pipeline_registry() -> PipelineRegistry:
-    registry = PipelineRegistry()
-    registry.register(
-        name="markdown",
-        suffixes=(".md", ".markdown"),
-        builder=lambda: MarkdownDocumentPipeline(
-            name="markdown",
-            loader=_build_markdown_loader(),
-            splitter=_build_markdown_splitter(),
-        )
-    )
-    registry.register(
-        name="document",
-        suffixes=(".pdf", ".docx", ".doc", ".xlsx", ".xls"),
-        builder=lambda: GenericDocumentPipeline(
-            name="document",
-            loader=_build_document_loader(),
-            splitter=_build_text_splitter(),
-        )
-    )
-    return registry
-
-
-def _build_markdown_loader() -> BaseLoader:
+def _build_markdown_pipeline() -> MarkdownDocumentPipeline:
     from agent.rag.Loader.md_loader import MarkdownLoader
-
-    return MarkdownLoader()
-
-
-def _build_markdown_splitter() -> BaseThreeLayerSplitter:
     from agent.rag.splitter.md_splitter import MarkdownThreeLayerSplitter
 
-    return MarkdownThreeLayerSplitter()
-
-
-def _build_document_loader() -> BaseLoader:
-    from agent.rag.Loader.doc_loader import DocumentLoader
-
-    return DocumentLoader()
-
-
-def _build_text_splitter() -> BaseThreeLayerSplitter:
-    from agent.rag.splitter.text_splitter import ThreeLayerSplitter
-
-    return ThreeLayerSplitter()
+    return MarkdownDocumentPipeline(
+        name="markdown",
+        loader=MarkdownLoader(),
+        splitter=MarkdownThreeLayerSplitter(),
+    )
 
 
 class DataEmbedding:
@@ -263,21 +196,34 @@ class DataEmbedding:
         self.milvus_manager.disconnect()
 
 
+_PDF_SUFFIXES = {".pdf"}
+
+
 class RAGPipelineService:
     def __init__(
         self,
         model_name: str = "local",
         dimensions: int = 1024,
-        registry: PipelineRegistry | None = None,
         data_embedding: DataEmbedding | None = None,
     ):
-        self.registry = registry or build_default_pipeline_registry()
+        self._md_pipeline = _build_markdown_pipeline()
         self.data_embedding = data_embedding or DataEmbedding(model_name=model_name, dimensions=dimensions)
 
     def ingest_file(self, file_path: str) -> PreparedDocument:
-        pipeline = self.registry.resolve(file_path)
-        prepared_document = pipeline.prepare(file_path)
-        logger.info(f"Using pipeline '{pipeline.name}' for file '{file_path}'.")
+        suffix = Path(file_path).suffix.lower()
+        if suffix in _PDF_SUFFIXES:
+            from agent.rag.Loader.minerU import MinerUParser
+
+            parser = MinerUParser()
+            output_dir = parser.parse(file_path)
+            md_candidates = list(output_dir.rglob("*.md"))
+            if not md_candidates:
+                raise FileNotFoundError(f"MinerU did not produce a markdown file in {output_dir}")
+            file_path = str(md_candidates[0])
+            logger.info(f"MinerU converted PDF to: {file_path}")
+
+        prepared_document = self._md_pipeline.prepare(file_path)
+        logger.info(f"Using pipeline '{self._md_pipeline.name}' for file '{file_path}'.")
         self.data_embedding.process_chunks(
             prepared_document.chunks,
             content_fingerprint=prepared_document.content_fingerprint,
@@ -290,12 +236,12 @@ class RAGPipelineService:
 
 
 if __name__ == "__main__":
-    service = RAGPipelineService(model_name="dashscope")
+    service = RAGPipelineService(model_name="local")
     try:
-        prepared = service.ingest_file(r"src\agent\data\minerU.md")
+        prepared = service.ingest_file(r"data\算法基础\算法基础.md")
         print(prepared.pipeline_name)
         print(prepared.metadata)
-        print(prepared.loaded_content[0])
+        print(f"chunks: {len(prepared.chunks)}")
         print(prepared.chunks[0])
     finally:
         service.close()

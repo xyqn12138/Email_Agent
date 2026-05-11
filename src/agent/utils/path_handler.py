@@ -25,5 +25,5 @@ def get_absolute_path(relative_path: str) -> str:
     return Path(get_project_root()) / relative_path
 
 if __name__ == "__main__":
-    path = get_absolute_path(r"src\agent\rag\Loader\doc_loader.py")
+    path = get_absolute_path(r"src\agent\rag\Loader\md_loader.py")
     print(path)
