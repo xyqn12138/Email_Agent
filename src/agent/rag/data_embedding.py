@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,16 @@ from agent.utils.logger_handler import get_logger
 from agent.utils.path_handler import get_absolute_path
 
 logger = get_logger()
+
+_MD_IMAGE_RE = re.compile(r"!\[.*?\]\(([^)]+)\)")
+
+
+def extract_image_paths(text: str) -> list[str]:
+    return _MD_IMAGE_RE.findall(text)
+
+
+def strip_images(text: str) -> str:
+    return _MD_IMAGE_RE.sub("", text).strip()
 
 
 @dataclass(frozen=True)
@@ -135,8 +146,11 @@ class DataEmbedding:
     def _build_milvus_batch(self, chunks: list[dict[str, Any]], dense_embeddings: list[list[float]], start_idx: int) -> list[dict]:
         milvus_data = []
         for offset, chunk in enumerate(chunks):
+            original_text = chunk["text"]
+            image_paths = extract_image_paths(original_text)
+            clean_text = strip_images(original_text)
             chunk_data = {
-                "text": chunk["text"],
+                "text": clean_text,
                 "text_dense": dense_embeddings[offset],
                 "doc_id": chunk.get("doc_id") or "",
                 "filename": chunk.get("filename") or "",
@@ -150,6 +164,8 @@ class DataEmbedding:
                 "content_type": chunk.get("content_type") or "",
                 "page_number": int(chunk.get("page_number") or 0),
             }
+            if image_paths:
+                chunk_data["image_paths"] = ";".join(image_paths)
             milvus_data.append(chunk_data)
         return milvus_data
 
@@ -182,7 +198,7 @@ class DataEmbedding:
 
         for batch_index, batch_chunks in enumerate(self._chunk_items(pending_chunks, self.insert_batch_size), start=1):
             logger.info(f"Embedding batch {batch_index}, chunk count: {len(batch_chunks)}")
-            texts = [chunk["text"] for chunk in batch_chunks]
+            texts = [strip_images(chunk["text"]) for chunk in batch_chunks]
             dense_embeddings = self.embedding_model.embed_documents(texts)
             self._ensure_collection(dense_dim=len(dense_embeddings[0]))
             milvus_data = self._build_milvus_batch(batch_chunks, dense_embeddings, start_idx=(batch_index - 1) * self.insert_batch_size)

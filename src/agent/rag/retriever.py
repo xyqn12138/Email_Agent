@@ -99,7 +99,7 @@ class Retriever:
             reqs=[dense_req, sparse_req],
             ranker=RRFRanker(),
             limit=limit,
-            output_fields=["text", "chunk_id", "parent_chunk_id", "root_chunk_id", "chunk_level", "filename", "title_path", "content_type", "page_number"]
+            output_fields=["text", "chunk_id", "parent_chunk_id", "root_chunk_id", "chunk_level", "filename", "title_path", "content_type", "page_number", "image_paths"]
         )
 
         results = []
@@ -115,6 +115,7 @@ class Retriever:
                     "title_path": hit.get("title_path", ""),
                     "content_type": hit.get("content_type", ""),
                     "page_number": hit.get("page_number", 0),
+                    "image_paths": hit.get("image_paths", ""),
                     "score": hit.score
                 })
 
@@ -188,12 +189,14 @@ class Retriever:
                 continue
 
             context = {
+                "chunk_id": hit["chunk_id"],
                 "search_hit": hit["text"],
                 "level": hit["chunk_level"],
                 "filename": hit["filename"],
                 "title_path": hit.get("title_path", ""),
                 "content_type": hit.get("content_type", ""),
                 "page_number": hit.get("page_number", 0),
+                "image_paths": hit.get("image_paths", ""),
                 "chunk1_text": "",
                 "chunk2_text": "",
                 "chunk3_text": hit["text"] if hit["chunk_level"] == 3 else "",

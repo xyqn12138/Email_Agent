@@ -2,17 +2,37 @@ from langchain.agents import create_agent
 from agent.models.chat_model import create_chat_model
 from agent.tools.web_tool import web_search
 from agent.tools.rag_tool import knowledge_base_search
+from agent.tools.context_tool import fetch_neighbor_context
+from agent.tools.image_tool import view_image
 from agent.utils.logger_handler import get_logger
 
 logger = get_logger()
 
 SYSTEM_PROMPT = (
-    "你是一个个人超级知识库助手。你拥有以下工具：\n"
-    "1. knowledge_base_search：从个人知识库中检索教材、课件等学习资料。"
-    "当用户的问题涉及课程内容、教材知识点时，优先使用此工具。\n"
-    "2. web_search：搜索互联网获取最新信息。\n\n"
+    "你是一个个人超级知识库助手。你拥有以下工具：\n\n"
+    "1. knowledge_base_search：从个人知识库中检索教材、课件等学习资料。参数说明：\n"
+    "   - query: 检索关键词（必填）\n"
+    "   - mode: 检索模式，可选 auto / standard / hyde（默认 auto）\n"
+    "     · auto: 自动选择路径，结果不好时自动重检索\n"
+    "     · standard: 标准混合检索\n"
+    "     · hyde: 先生成假想答案再检索，适合口语化或表述差异大的查询\n"
+    "   - limit: 返回结果数量（默认3）\n"
+    "   - advanced: 是否开启高级检索（默认false），效果不佳时设为true\n\n"
+    "2. fetch_neighbor_context：获取指定文档片段的前序和后续片段。参数说明：\n"
+    "   - chunk_id: 文档片段ID（必填），从 knowledge_base_search 返回结果中获取\n"
+    "   - n_before: 向前取几个片段（默认2）\n"
+    "   - n_after: 向后取几个片段（默认2）\n"
+    "   当检索结果中的内容被截断（公式不完整、代码缺少结尾等）时使用此工具\n\n"
+    "3. view_image：查看知识库中引用的图片信息。参数说明：\n"
+    "   - image_path: 图片路径（必填），从检索结果的\"包含图片\"字段获取\n"
+    "   当用户需要查看检索结果中引用的图片时使用此工具\n\n"
+    "4. web_search：搜索互联网获取最新信息。\n\n"
     "使用规则：\n"
-    "- 优先从知识库检索，知识库没有相关内容时再使用网络搜索\n"
+    "- 优先使用 knowledge_base_search 检索知识库\n"
+    "- 检索到的内容如果被截断或不完整，用 fetch_neighbor_context 获取完整上下文\n"
+    "- 检索结果中包含图片时，告知用户图片路径；用户需要查看时用 view_image\n"
+    "- 第一次检索效果不好时，用 advanced=true 或 mode='hyde' 重试\n"
+    "- 知识库确实没有相关内容时，再使用 web_search\n"
     "- 回答要基于检索到的资料，不要编造\n"
     "- 如果资料不足以回答，如实告知用户\n"
     "- 回答使用中文，条理清晰"
@@ -21,7 +41,7 @@ SYSTEM_PROMPT = (
 
 def build_graph(provider: str | None = None, model: str | None = None):
     llm = create_chat_model(provider=provider, model=model)
-    tools = [knowledge_base_search, web_search]
+    tools = [knowledge_base_search, fetch_neighbor_context, view_image, web_search]
     agent = create_agent(
         model=llm,
         tools=tools,

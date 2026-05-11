@@ -48,6 +48,7 @@ class MilvusManage:
         schema.add_field("title", DataType.VARCHAR, max_length=512)
         schema.add_field("content_type", DataType.VARCHAR, max_length=64)
         schema.add_field("page_number", DataType.INT64)
+        schema.add_field("image_paths", DataType.VARCHAR, max_length=4096)
 
         bm25_function = Function(
             name="text_bm25_emb",
@@ -104,6 +105,49 @@ class MilvusManage:
     def has_chunk(self, chunk_id: str) -> bool:
         results = self.query_by_chunk_ids([chunk_id], output_fields=["chunk_id"])
         return len(results) > 0
+
+    def get_neighbor_chunks(self, chunk_id: str, n_before: int = 2, n_after: int = 2) -> dict[str, list[dict]]:
+        prefix, level, seq = self._parse_chunk_id(chunk_id)
+        if prefix is None:
+            return {"before": [], "after": []}
+        fields = [
+            "chunk_id", "text", "chunk_level", "parent_chunk_id",
+            "root_chunk_id", "title_path", "filename", "page_number", "image_paths",
+        ]
+        before: list[dict] = []
+        for offset in range(1, n_before + 1):
+            target = seq - offset
+            if target < 0:
+                break
+            rows = self.query_by_chunk_ids([f"{prefix}_L{level}_{target:04d}"], output_fields=fields)
+            if rows:
+                before.append(rows[0])
+            else:
+                break
+
+        after: list[dict] = []
+        for offset in range(1, n_after + 1):
+            rows = self.query_by_chunk_ids([f"{prefix}_L{level}_{seq + offset:04d}"], output_fields=fields)
+            if rows:
+                after.append(rows[0])
+            else:
+                break
+
+        return {"before": before, "after": after}
+
+    @staticmethod
+    def _parse_chunk_id(chunk_id: str) -> tuple[str, int, int] | tuple[None, None, None]:
+        try:
+            parts = chunk_id.rsplit("_L", 1)
+            if len(parts) != 2:
+                return None, None, None
+            prefix = parts[0]
+            level_seq = parts[1].split("_", 1)
+            if len(level_seq) != 2:
+                return None, None, None
+            return prefix, int(level_seq[0]), int(level_seq[1])
+        except (ValueError, IndexError):
+            return None, None, None
 
     def has_collection(self) -> bool:
         return self._get_connect().has_collection(self.collection_name)
