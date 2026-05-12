@@ -1,7 +1,9 @@
+import asyncio
 import os
 from dataclasses import dataclass
 from typing import Protocol
 
+import aiohttp
 import requests
 from dotenv import load_dotenv
 from requests import RequestException
@@ -47,6 +49,8 @@ class EmbeddingProvider(Protocol):
 
 
 class BaseHTTPEmbeddingProvider:
+    supports_async: bool = False
+
     def __init__(self, *, timeout: float, batch_size: int):
         self.timeout = timeout
         self.batch_size = max(1, batch_size)
@@ -84,26 +88,68 @@ class BaseHTTPEmbeddingProvider:
 
         return self._parse_embeddings_response(data)
 
+    async def _post_embeddings_async(
+        self, *, url: str, headers: dict[str, str], payload: dict
+    ) -> list[list[float]]:
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    raise RuntimeError(
+                        f"Embedding request failed: {response.status} {response.reason} | "
+                        f"url={url} | body={body[:500]}"
+                    )
+                data = await response.json()
+        return self._parse_embeddings_response(data)
+
 
 class ZhipuEmbeddingProvider(BaseHTTPEmbeddingProvider):
+    supports_async = True
+
     def __init__(self, *, timeout: float, batch_size: int):
         super().__init__(timeout=timeout, batch_size=batch_size)
         self.url = "https://open.bigmodel.cn/api/paas/v4/embeddings"
         self.api_key = os.getenv("ZHIPUAI_API_KEY")
 
-    def embed(self, texts: list[str], *, profile: EmbeddingProfile, dimensions: int) -> list[list[float]]:
-        headers = {
+    def _make_headers(self) -> dict[str, str]:
+        return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+    def _make_payload(self, chunk: list[str], *, model: str, dimensions: int) -> dict:
+        return {
+            "model": model,
+            "input": chunk if len(chunk) > 1 else chunk[0],
+            "dimensions": dimensions,
+        }
+
+    def embed(self, texts: list[str], *, profile: EmbeddingProfile, dimensions: int) -> list[list[float]]:
+        headers = self._make_headers()
         all_embeddings: list[list[float]] = []
         for chunk in self._chunk_texts(texts):
-            payload = {
-                "model": profile.model,
-                "input": chunk if len(chunk) > 1 else chunk[0],
-                "dimensions": dimensions,
-            }
+            payload = self._make_payload(chunk, model=profile.model, dimensions=dimensions)
             embeddings = self._post_embeddings(url=self.url, headers=headers, payload=payload)
+            if len(embeddings) != len(chunk):
+                raise ValueError("Embedding response size does not match input size")
+            all_embeddings.extend(embeddings)
+        return all_embeddings
+
+    async def async_embed(self, texts: list[str], *, profile: EmbeddingProfile, dimensions: int) -> list[list[float]]:
+        headers = self._make_headers()
+        chunks = self._chunk_texts(texts)
+        tasks = [
+            self._post_embeddings_async(
+                url=self.url,
+                headers=headers,
+                payload=self._make_payload(chunk, model=profile.model, dimensions=dimensions),
+            )
+            for chunk in chunks
+        ]
+        results = await asyncio.gather(*tasks)
+        all_embeddings: list[list[float]] = []
+        for chunk, embeddings in zip(chunks, results):
             if len(embeddings) != len(chunk):
                 raise ValueError("Embedding response size does not match input size")
             all_embeddings.extend(embeddings)
@@ -111,25 +157,51 @@ class ZhipuEmbeddingProvider(BaseHTTPEmbeddingProvider):
 
 
 class DashscopeEmbeddingProvider(BaseHTTPEmbeddingProvider):
+    supports_async = True
+
     def __init__(self, *, timeout: float, batch_size: int):
         super().__init__(timeout=timeout, batch_size=batch_size)
         self.url = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
         self.api_key = os.getenv("DASHSCOPE_API_KEY")
 
-    def embed(self, texts: list[str], *, profile: EmbeddingProfile, dimensions: int) -> list[list[float]]:
-        headers = {
+    def _make_headers(self) -> dict[str, str]:
+        return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+    def _make_payload(self, chunk: list[str], *, model: str, dimensions: int) -> dict:
+        return {
+            "model": model,
+            "input": chunk if len(chunk) > 1 else chunk[0],
+            "dimensions": dimensions,
+        }
+
+    def embed(self, texts: list[str], *, profile: EmbeddingProfile, dimensions: int) -> list[list[float]]:
+        headers = self._make_headers()
         all_embeddings: list[list[float]] = []
         for chunk in self._chunk_texts(texts):
-            payload = {
-                "model": profile.model,
-                "input": chunk if len(chunk) > 1 else chunk[0],
-                "dimensions": dimensions,
-                "instruct": profile.instruct,
-            }
+            payload = self._make_payload(chunk, model=profile.model, dimensions=dimensions)
             embeddings = self._post_embeddings(url=self.url, headers=headers, payload=payload)
+            if len(embeddings) != len(chunk):
+                raise ValueError("Embedding response size does not match input size")
+            all_embeddings.extend(embeddings)
+        return all_embeddings
+
+    async def async_embed(self, texts: list[str], *, profile: EmbeddingProfile, dimensions: int) -> list[list[float]]:
+        headers = self._make_headers()
+        chunks = self._chunk_texts(texts)
+        tasks = [
+            self._post_embeddings_async(
+                url=self.url,
+                headers=headers,
+                payload=self._make_payload(chunk, model=profile.model, dimensions=dimensions),
+            )
+            for chunk in chunks
+        ]
+        results = await asyncio.gather(*tasks)
+        all_embeddings: list[list[float]] = []
+        for chunk, embeddings in zip(chunks, results):
             if len(embeddings) != len(chunk):
                 raise ValueError("Embedding response size does not match input size")
             all_embeddings.extend(embeddings)
@@ -221,6 +293,17 @@ class EmbeddingModel:
         profile = self._get_profile(is_query=is_query)
         return provider.embed(normalized_texts, profile=profile, dimensions=self.dimensions)
 
+    async def async_embed(self, texts: str | list[str], *, is_query: bool) -> list[list[float]]:
+        normalized_texts = self._normalize_input(texts)
+        if not normalized_texts:
+            return []
+        normalized_texts = self._truncate_texts(normalized_texts, DEFAULT_MAX_TEXT_CHARS)
+        provider = self._get_provider()
+        profile = self._get_profile(is_query=is_query)
+        if getattr(provider, "supports_async", False):
+            return await provider.async_embed(normalized_texts, profile=profile, dimensions=self.dimensions)
+        return provider.embed(normalized_texts, profile=profile, dimensions=self.dimensions)
+
     def embed_queries(self, texts: str | list[str]) -> list[list[float]]:
         return self.embed(texts, is_query=True)
 
@@ -232,6 +315,12 @@ class EmbeddingModel:
         if not embeddings:
             raise ValueError("Embedding service returned empty result for query")
         return embeddings[0]
+
+    async def async_embed_documents(self, texts: str | list[str]) -> list[list[float]]:
+        return await self.async_embed(texts, is_query=False)
+
+    async def async_embed_queries(self, texts: str | list[str]) -> list[list[float]]:
+        return await self.async_embed(texts, is_query=True)
 
 
 if __name__ == "__main__":

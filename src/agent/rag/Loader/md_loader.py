@@ -11,7 +11,7 @@ LEVEL_SECTION = 2
 LEVEL_SUBSECTION = 3
 LEVEL_SUBSUB = 4
 
-_RE_CHAPTER = re.compile(r"^第[0-9一二三四五六七八九十百千]+[章节篇]\s*")
+_RE_CHAPTER = re.compile(r"^第\s*[0-9一二三四五六七八九十百千]+\s*[章节篇]\s*")
 _RE_NUM_DOTTED = re.compile(r"^(\d+(?:\.\d+)*)\s+")
 _RE_NUM_PERIOD = re.compile(r"^(\d+)\.[\s]*")
 _RE_NUM_PAREN = re.compile(r"^[（(]?\d+[）)]\s*")
@@ -198,10 +198,19 @@ class MarkdownLoader(BaseLoader):
 
         entries: list[dict[str, Any]] = []
         toc_end = len(lines)
-        seen_norms: set[str] = set()
+        seen_chapters: set[str] = set()
 
-        def _norm(title: str) -> str:
-            return re.sub(r"\s+\d+\s*$", "", title).strip()
+        def _strip_page(title: str) -> str:
+            return re.sub(r"[\s…]+\d+\s*$", "", title).strip()
+
+        def _struct_id(title: str) -> str:
+            ch = re.match(r"第\s*(\d+)\s*章", title)
+            if ch:
+                return f"第{ch.group(1)}章"
+            sec = re.match(r"(\d+(?:\.\d+)*)", title)
+            if sec:
+                return sec.group(1)
+            return _strip_page(title)
 
         for i in range(toc_start + 1, len(lines)):
             stripped = lines[i].strip()
@@ -211,11 +220,14 @@ class MarkdownLoader(BaseLoader):
             if heading_match:
                 title = heading_match.group(2).strip()
                 logical_level = self._classify_heading(title)
-                norm = _norm(title)
-                if norm in seen_norms:
+                sid = _struct_id(title)
+                # A chapter heading that was already seen means we've left
+                # the TOC and entered actual content
+                if _RE_CHAPTER.match(title) and sid in seen_chapters:
                     toc_end = i
                     break
-                seen_norms.add(norm)
+                if _RE_CHAPTER.match(title):
+                    seen_chapters.add(sid)
                 entries.append({
                     "title": title,
                     "logical_level": logical_level,
@@ -235,14 +247,14 @@ class MarkdownLoader(BaseLoader):
                     "line_no": i + 1,
                 })
                 continue
-            cleaned = re.sub(r"\s+\d+\s*$", "", stripped)
+            cleaned = re.sub(r"[\s…]+\d+\s*$", "", stripped)
             cleaned = re.sub(r"^#+\s*", "", cleaned)
             if cleaned and _RE_CHAPTER.match(cleaned):
-                norm = _norm(cleaned)
-                if norm in seen_norms:
+                sid = _struct_id(cleaned)
+                if sid in seen_chapters:
                     toc_end = i
                     break
-                seen_norms.add(norm)
+                seen_chapters.add(sid)
                 entries.append({
                     "title": cleaned,
                     "logical_level": LEVEL_CHAPTER,

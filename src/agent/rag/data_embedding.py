@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import os
 import re
@@ -196,10 +197,15 @@ class DataEmbedding:
 
         logger.info(f"Preparing to insert {len(pending_chunks)} pending chunks out of {len(chunks)} total chunks.")
 
+        use_async = self.embedding_model.model_name in ("dashscope", "zhipuai")
+
         for batch_index, batch_chunks in enumerate(self._chunk_items(pending_chunks, self.insert_batch_size), start=1):
             logger.info(f"Embedding batch {batch_index}, chunk count: {len(batch_chunks)}")
             texts = [strip_images(chunk["text"]) for chunk in batch_chunks]
-            dense_embeddings = self.embedding_model.embed_documents(texts)
+            if use_async:
+                dense_embeddings = asyncio.run(self.embedding_model.async_embed_documents(texts))
+            else:
+                dense_embeddings = self.embedding_model.embed_documents(texts)
             self._ensure_collection(dense_dim=len(dense_embeddings[0]))
             milvus_data = self._build_milvus_batch(batch_chunks, dense_embeddings, start_idx=(batch_index - 1) * self.insert_batch_size)
             logger.info(f"Inserting batch {batch_index} into Milvus...")
