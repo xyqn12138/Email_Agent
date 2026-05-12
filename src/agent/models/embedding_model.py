@@ -237,5 +237,5 @@ class EmbeddingModel:
 if __name__ == "__main__":
     txt = "你好"
     embedding_model = EmbeddingModel(model_name="dashscope", dimensions=1024)
-    embedding = embedding_model.embed_query(txt)
-    print(f"Embedding for '{txt}': {embedding[:10]}...")
+    embedding = embedding_model.embed_documents(txt)
+    print(embedding)

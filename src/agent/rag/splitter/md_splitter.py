@@ -300,13 +300,15 @@ class MarkdownThreeLayerSplitter(BaseThreeLayerSplitter):
 if __name__ == "__main__":
     from agent.rag.Loader.md_loader import MarkdownLoader
     loader = MarkdownLoader()
-    docs = loader.load(r"data\算法基础\算法基础.md")
+    docs = loader.load(r"data\计算机操作系统  第4版·微课视频\计算机操作系统  第4版·微课视频.md")
     splitter = MarkdownThreeLayerSplitter()
-    meta = {"filename": "算法基础.md", "file_path": r"data\算法基础\算法基础.md", "doc_id": "test-doc-id"}
+    meta = {"filename": "计算机操作系统  第4版·微课视频.md", "file_path": r"data\计算机操作系统  第4版·微课视频\计算机操作系统  第4版·微课视频.md", "doc_id": "test-doc-id"}
     chunks = splitter.split(docs, meta)
     print(f"总分块数: {len(chunks)}")
 
-    print(chunks[0])
+    for chunk in chunks:
+        if chunk["chunk_level"] <= 1:
+            print(chunk)
 
         
 

@@ -252,9 +252,9 @@ class RAGPipelineService:
 
 
 if __name__ == "__main__":
-    service = RAGPipelineService(model_name="local")
+    service = RAGPipelineService(model_name="dashscope")
     try:
-        prepared = service.ingest_file(r"data\算法基础\算法基础.md")
+        prepared = service.ingest_file(r"data\计算机操作系统  第4版·微课视频\计算机操作系统  第4版·微课视频.md")
         print(prepared.pipeline_name)
         print(prepared.metadata)
         print(f"chunks: {len(prepared.chunks)}")
