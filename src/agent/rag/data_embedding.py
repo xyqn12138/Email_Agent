@@ -176,6 +176,7 @@ class DataEmbedding:
         *,
         content_fingerprint: str,
         metadata: dict[str, Any] | None = None,
+        on_progress: Any | None = None,
     ) -> None:
         metadata = metadata or {}
         if self._is_processed(content_fingerprint):
@@ -198,9 +199,12 @@ class DataEmbedding:
         logger.info(f"Preparing to insert {len(pending_chunks)} pending chunks out of {len(chunks)} total chunks.")
 
         use_async = self.embedding_model.model_name in ("dashscope", "zhipuai")
+        total_batches = max(1, -(-len(pending_chunks) // self.insert_batch_size))
 
         for batch_index, batch_chunks in enumerate(self._chunk_items(pending_chunks, self.insert_batch_size), start=1):
             logger.info(f"Embedding batch {batch_index}, chunk count: {len(batch_chunks)}")
+            if on_progress:
+                on_progress(f"向量化入库中 (批次 {batch_index}/{total_batches})...", batch_index, total_batches)
             texts = [strip_images(chunk["text"]) for chunk in batch_chunks]
             if use_async:
                 dense_embeddings = asyncio.run(self.embedding_model.async_embed_documents(texts))
@@ -231,11 +235,13 @@ class RAGPipelineService:
         self._md_pipeline = _build_markdown_pipeline()
         self.data_embedding = data_embedding or DataEmbedding(model_name=model_name, dimensions=dimensions)
 
-    def ingest_file(self, file_path: str) -> PreparedDocument:
+    def ingest_file(self, file_path: str, on_progress: Any | None = None) -> PreparedDocument:
         suffix = Path(file_path).suffix.lower()
         if suffix in _PDF_SUFFIXES:
             from agent.rag.Loader.minerU import MinerUParser
 
+            if on_progress:
+                on_progress("MinerU 转换中...", 0, 0)
             parser = MinerUParser()
             output_dir = parser.parse(file_path)
             md_candidates = list(output_dir.rglob("*.md"))
@@ -244,12 +250,15 @@ class RAGPipelineService:
             file_path = str(md_candidates[0])
             logger.info(f"MinerU converted PDF to: {file_path}")
 
+        if on_progress:
+            on_progress("知识库载入中...", 0, 0)
         prepared_document = self._md_pipeline.prepare(file_path)
         logger.info(f"Using pipeline '{self._md_pipeline.name}' for file '{file_path}'.")
         self.data_embedding.process_chunks(
             prepared_document.chunks,
             content_fingerprint=prepared_document.content_fingerprint,
             metadata=prepared_document.metadata,
+            on_progress=on_progress,
         )
         return prepared_document
 

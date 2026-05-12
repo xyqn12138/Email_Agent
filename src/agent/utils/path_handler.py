@@ -12,16 +12,20 @@ def get_project_root() -> str:
     """
     return Path(__file__).resolve().parents[3]
 
-def get_absolute_path(relative_path: str) -> str:
+def get_absolute_path(relative_path: str) -> Path:
     """
     获取相对路径对应的绝对路径。
+    如果输入已经是绝对路径，则直接返回。
 
     Args:
         relative_path: 相对路径字符串
-        
+
     Returns:
-        绝对路径字符串
+        绝对路径 Path 对象
     """
+    p = Path(relative_path)
+    if p.is_absolute():
+        return p
     return Path(get_project_root()) / relative_path
 
 if __name__ == "__main__":
