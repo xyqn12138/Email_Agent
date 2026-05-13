@@ -1,6 +1,6 @@
 # Study Agent
 
-基于 LangGraph 的个人超级知识库 Agent，通过多阶段 RAG 管线实现对教材、课件等学术文档的深度问答。
+基于 LangGraph 的个人超级知识库 Agent，通过多阶段 RAG 管线实现对教材、课件等学术文档的深度问答。提供 Web 界面，支持文件上传入库和流式对话。
 
 ## 架构概览
 
@@ -23,7 +23,13 @@ PDF / Markdown 文档
   ┌──────────────┐
   │ LangGraph    │     ┌──────────────────────────────────────┐
   │ ReAct Agent  │────▶│ tools: search / context / image / web│
-  └──────────────┘     └──────────────────────────────────────┘
+  └──────┬───────┘     └──────────────────────────────────────┘
+         │
+         ▼
+  ┌──────────────┐     ┌──────────────────┐
+  │  FastAPI     │────▶│  Web 前端界面     │
+  │  SSE 流式    │     │  (ChatGPT 风格)   │
+  └──────────────┘     └──────────────────┘
 ```
 
 ## 四层分块体系
@@ -76,9 +82,28 @@ PDF / Markdown 文档
 
 RAG Tool 支持 `mode=auto`：当 rerank 置信度低于阈值时，自动升级为 HyDE 模式重检索。
 
-### 图片处理
+## Web 界面
 
-入库时正则剥离 Markdown 图片语法（`![](path)`）后再向量化，原路径存入 `image_paths` 字段，Agent 可通过 `view_image` 工具按需查看。
+基于 FastAPI + SSE 流式传输，提供 ChatGPT/DeepSeek 风格的对话界面。
+
+### 功能
+
+- **流式对话**：逐 token 实时输出，SSE 推送
+- **思考过程展示**：tool 调用期间展开显示（spinner + 工具名 + 参数），收到回答后自动折叠为 "▶ 思考过程 (N 步)"
+- **中间推理**：LLM 在 tool 调用之间的推理文本以紫色底色显示在思考步骤内
+- **文件上传**：支持 PDF / Markdown，带进度提示（MinerU 转换 → 知识库载入 → 向量化入库）
+- **知识库管理**：`data/knowledge.md` 记录已入库课本列表
+- **多轮对话**：左侧边栏管理多个对话
+- **移动端适配**：响应式布局，手机端侧边栏滑出
+
+### API 接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 返回前端页面 |
+| `/api/chat` | POST | SSE 流式聊天（`event: thinking/token/tool_result/done`） |
+| `/api/upload` | POST | 文件上传入库 |
+| `/api/knowledge` | GET | 获取已入库课本列表 |
 
 ## Agent 工具
 
@@ -93,31 +118,42 @@ RAG Tool 支持 `mode=auto`：当 rerank 置信度低于阈值时，自动升级
 
 ```
 src/agent/
+├── server.py                   # FastAPI Web 服务 + SSE 流式接口
+├── graph.py                    # LangGraph Agent 定义
+├── agent.py                    # CLI 交互式对话入口
 ├── rag/
 │   ├── Loader/
-│   │   ├── base_loader.py        # 加载器基类
-│   │   ├── md_loader.py          # Markdown 解析（TOC 提取、标题分类、分块、页码映射）
-│   │   └── minerU.py             # MinerU API（PDF → Markdown）
+│   │   ├── base_loader.py      # 加载器基类
+│   │   ├── md_loader.py        # Markdown 解析（TOC、标题分类、分块）
+│   │   └── minerU.py           # MinerU API（PDF → Markdown）
 │   ├── splitter/
-│   │   ├── base_splitter.py      # 分块器基类
-│   │   └── md_splitter.py        # Markdown 四层分块器
-│   ├── data_embedding.py         # 入库管线：图片剥离 → chunk → embedding → Milvus
-│   ├── milvus_manage.py          # Milvus 客户端（schema、索引、CRUD、邻居查询）
-│   └── retriever.py              # 检索管线：路由 → 混合检索 → 重排序 → 多层上下文
+│   │   ├── base_splitter.py    # 分块器基类
+│   │   └── md_splitter.py      # Markdown 四层分块器
+│   ├── data_embedding.py       # 入库管线：chunk → embedding → Milvus
+│   ├── milvus_manage.py        # Milvus 客户端
+│   └── retriever.py            # 检索管线：路由 → 混合检索 → 重排序
 ├── models/
-│   ├── chat_model.py             # 对话模型（多 Provider 注册）
-│   ├── embedding_model.py        # Embedding 模型（DashScope / OpenAI / 本地）
-│   └── reranker_model.py         # 重排序模型（qwen3-rerank via DashScope）
+│   ├── chat_model.py           # 对话模型（多 Provider）
+│   ├── embedding_model.py      # Embedding 模型
+│   └── reranker_model.py       # 重排序模型
 ├── tools/
-│   ├── rag_tool.py               # 知识库检索工具（自适应质量升级）
-│   ├── context_tool.py           # 邻居上下文工具
-│   ├── image_tool.py             # 图片查看工具
-│   └── web_tool.py               # Web 搜索工具
+│   ├── rag_tool.py             # 知识库检索工具
+│   ├── context_tool.py         # 邻居上下文工具
+│   ├── image_tool.py           # 图片查看工具
+│   └── web_tool.py             # Web 搜索工具
 ├── utils/
-│   ├── logger_handler.py         # 日志工具
-│   └── path_handler.py           # 路径工具
-├── agent.py                      # 交互式对话入口
-└── graph.py                      # LangGraph Agent 定义
+│   ├── logger_handler.py       # 日志
+│   └── path_handler.py         # 路径处理
+└── schema/
+    └── tools_schema.py         # 工具 Schema
+
+static/
+└── index.html                  # Web 前端（单文件，内联 CSS/JS）
+
+data/
+├── processed_md5.txt           # 已入库文档去重记录
+├── knowledge.md                # 已入库课本列表
+└── ...                         # 上传的文档和 MinerU 输出
 ```
 
 ## Milvus Schema（16 字段）
@@ -182,27 +218,39 @@ LANGSMITH_API_KEY=lsv2_...
 
 ## 快速开始
 
-### 启动 Agent
+### 启动 Web 服务
 
 ```bash
-# 交互式对话
-python -m agent.agent
+conda activate study
+set PYTHONPATH=src          # Windows
+export PYTHONPATH=src       # Linux/Mac
 
-# 启动 LangGraph Server（Studio 可视化调试）
+# 启动 FastAPI 服务
+uvicorn agent.server:app --reload --host 0.0.0.0 --port 8080
+
+# 浏览器访问 http://localhost:8080
+```
+
+### CLI 对话
+
+```bash
+python -m agent.agent
+```
+
+### LangGraph Studio
+
+```bash
 langgraph dev
 ```
 
-### 入库文档
+### 编程入库
 
 ```python
 from agent.rag.data_embedding import RAGPipelineService
 
-# Markdown 直接入库
 service = RAGPipelineService(model_name="dashscope", dimensions=1024)
-service.ingest_file(r"data\算法基础\算法基础.md")
-
-# PDF 入库（自动 MinerU 转换）
-service.ingest_file(r"data\教材.pdf")
+service.ingest_file(r"data\算法基础\算法基础.md")      # Markdown
+service.ingest_file(r"data\教材.pdf")                   # PDF（自动 MinerU 转换）
 service.close()
 ```
 
