@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agent.graph import build_graph
+from agent.persistence import get_store
 from agent.rag.data_embedding import RAGPipelineService
 from agent.utils.logger_handler import get_logger
 from agent.utils.path_handler import get_absolute_path
@@ -21,7 +22,7 @@ logger = get_logger()
 # --- Paths ---
 DATA_DIR = Path(get_absolute_path("data"))
 DATA_DIR.mkdir(exist_ok=True)
-KNOWLEDGE_FILE = Path(get_absolute_path("knowledge.md"))
+KNOWLEDGE_FILE = Path(get_absolute_path("data/knowledge.md"))
 STATIC_DIR = Path(get_absolute_path("static"))
 
 # --- App ---
@@ -93,6 +94,48 @@ async def get_knowledge():
     return {"content": KNOWLEDGE_FILE.read_text(encoding="utf-8")}
 
 
+@app.get("/api/images/{path:path}")
+async def serve_image(path: str):
+    img_path = DATA_DIR / path
+    if not img_path.exists() or not img_path.is_file():
+        return JSONResponse(status_code=404, content={"error": "image not found"})
+    suffix = img_path.suffix.lower()
+    media_types = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".gif": "image/gif", ".bmp": "image/bmp", ".webp": "image/webp", ".svg": "image/svg+xml",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+    from fastapi.responses import FileResponse
+    return FileResponse(str(img_path), media_type=media_type)
+
+
+# ============================================================
+# Conversation CRUD
+# ============================================================
+@app.get("/api/conversations")
+async def list_conversations():
+    store = get_store()
+    return {"conversations": store.list_conversations()}
+
+
+@app.get("/api/conversations/{conv_id}")
+async def get_conversation(conv_id: str):
+    store = get_store()
+    conv = store.get_conversation(conv_id)
+    if not conv:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    return conv
+
+
+@app.delete("/api/conversations/{conv_id}")
+async def delete_conversation(conv_id: str):
+    store = get_store()
+    deleted = store.delete_conversation(conv_id)
+    if not deleted:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    return {"status": "ok"}
+
+
 TOOL_NAME_MAP = {
     "knowledge_base_search": "检索知识库",
     "fetch_neighbor_context": "获取上下文片段",
@@ -105,16 +148,34 @@ TOOL_NAME_MAP = {
 async def chat(request: Request):
     body = await request.json()
     message = body.get("message", "").strip()
+    history = body.get("history", [])
+    conv_id = body.get("conv_id", "")
     if not message:
         return JSONResponse(status_code=400, content={"error": "empty message"})
 
+    store = get_store()
+    # Auto-create conversation if needed
+    if conv_id:
+        existing = store.get_conversation(conv_id)
+        if not existing:
+            store.create_conversation(conv_id, message[:30])
+    else:
+        conv_id = str(int(datetime.now().timestamp() * 1000))
+        store.create_conversation(conv_id, message[:30])
+
+    # Save user message
+    store.add_message(conv_id, "user", message)
+
     graph = _get_graph()
-    input_msg = {"messages": [{"role": "user", "content": message}]}
+    messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
+    messages.append({"role": "user", "content": message})
+    input_msg = {"messages": messages}
     config = {"recursion_limit": 50}
 
     async def event_stream():
         got_tokens = False
         final_content = ""
+        thinking_steps: list[dict] = []
 
         try:
             async for event in graph.astream_events(input_msg, config=config, version="v2"):
@@ -137,6 +198,7 @@ async def chat(request: Request):
                                 break
                     elif isinstance(tool_input, str):
                         detail = tool_input[:120]
+                    thinking_steps.append({"tool": display_name, "detail": detail, "result": ""})
                     yield _sse("thinking", {"tool": display_name, "detail": detail})
 
                 elif kind == "on_tool_end":
@@ -145,6 +207,8 @@ async def chat(request: Request):
                         output = output.content or ""
                     if not isinstance(output, str):
                         output = str(output)[:200]
+                    if thinking_steps:
+                        thinking_steps[-1]["result"] = output[:200]
                     yield _sse("tool_result", {"output": output[:200]})
 
                 elif kind == "on_chat_model_stream":
@@ -156,6 +220,7 @@ async def chat(request: Request):
                         text = chunk.content or ""
                     if text:
                         got_tokens = True
+                        final_content += text
                         yield _sse("token", {"text": text})
 
                 elif kind == "on_chat_model_end":
@@ -186,12 +251,21 @@ async def chat(request: Request):
         # Fallback: if no tokens were streamed but we have final content
         if not got_tokens and final_content:
             logger.warning("No streaming tokens received, using fallback final content")
-            # Send in chunks to simulate streaming
             chunk_size = 10
             for i in range(0, len(final_content), chunk_size):
                 yield _sse("token", {"text": final_content[i:i + chunk_size]})
 
-        yield _sse("done", {})
+        # Save assistant message
+        answer = final_content or ""
+        try:
+            store.add_message(
+                conv_id, "assistant", answer,
+                thinking=thinking_steps if thinking_steps else None,
+            )
+        except Exception as e:
+            logger.error(f"Failed to save message: {e}")
+
+        yield _sse("done", {"conv_id": conv_id})
 
     return StreamingResponse(
         event_stream(),

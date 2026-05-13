@@ -112,7 +112,7 @@ class DataEmbedding:
 
         self.embedding_model = EmbeddingModel(model_name=model_name, dimensions=dimensions)
         self.milvus_manager = MilvusManage()
-        self.md5_file = get_absolute_path("src/agent/data/processed_md5.txt")
+        self.md5_file = get_absolute_path("data/processed_md5.txt")
         self.insert_batch_size = max(1, int(os.getenv("RAG_INSERT_BATCH_SIZE", "32")))
         os.makedirs(os.path.dirname(self.md5_file), exist_ok=True)
 
