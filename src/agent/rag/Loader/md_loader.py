@@ -13,6 +13,7 @@ LEVEL_SUBSUB = 4
 
 _RE_CHAPTER = re.compile(r"^第\s*[0-9一二三四五六七八九十百千]+\s*[章篇]\s*")
 _RE_CHAPTER_OR_INTRO = re.compile(r"^(第\s*[0-9一二三四五六七八九十百千]+\s*[章篇]|导论|绪论)\s*")
+_RE_PART = re.compile(r"^第\s*[0-9一二三四五六七八九十百千]+\s*部分\s*")
 _RE_NUM_DOTTED = re.compile(r"^(\d+(?:\.\d+)*)\s+")
 _RE_NUM_PERIOD = re.compile(r"^(\d+)\.[\s]*")
 _RE_NUM_PAREN = re.compile(r"^[（(]?\d+[）)]\s*")
@@ -30,9 +31,21 @@ class MarkdownLoader(BaseLoader):
     def __init__(self, max_chunk_size: int = 1500):
         self.max_chunk_size = max(1, max_chunk_size)
 
+    # Matches <details>...</summary> blocks from MinerU OCR output
+    _RE_OCR_DETAILS = re.compile(
+        r"<details>\s*<summary>[^<]*</summary>.*?</details>",
+        re.DOTALL,
+    )
+
+    @staticmethod
+    def _strip_ocr_details(text: str) -> str:
+        """Remove MinerU OCR <details> blocks (natural_image, text_image, flowchart, etc.)."""
+        return MarkdownLoader._RE_OCR_DETAILS.sub("", text)
+
     def load(self, file_path: str, line_to_page_map: list[int] | None = None):
         absolute_path = self.validate_path(file_path)
         text = absolute_path.read_text(encoding="utf-8")
+        text = self._strip_ocr_details(text)
         if line_to_page_map is None:
             content_list_path = self._find_content_list(absolute_path)
             if content_list_path:
@@ -92,6 +105,8 @@ class MarkdownLoader(BaseLoader):
 
     def _classify_heading(self, title: str) -> int:
         if _RE_CHAPTER_OR_INTRO.match(title):
+            return LEVEL_CHAPTER
+        if _RE_PART.match(title):
             return LEVEL_CHAPTER
         if _RE_SECTION.match(title):
             return LEVEL_SECTION
@@ -220,6 +235,7 @@ class MarkdownLoader(BaseLoader):
         entries: list[dict[str, Any]] = []
         toc_end = len(lines)
         seen_chapters: set[str] = set()
+        seen_parts: set[str] = set()
 
         def _strip_page(title: str) -> str:
             return re.sub(r"[\s…／/]+\d+\s*$", "", title).strip()
@@ -234,6 +250,9 @@ class MarkdownLoader(BaseLoader):
                 return f"第{num}章"
             if re.match(r"^(导论|绪论)", title):
                 return re.match(r"^(导论|绪论)", title).group(1)
+            part = re.match(r"第\s*(\d+)\s*部分", title)
+            if part:
+                return f"第{part.group(1)}部分"
             sec = re.match(r"(\d+(?:\.\d+)*)", title)
             if sec:
                 return sec.group(1)
@@ -242,6 +261,8 @@ class MarkdownLoader(BaseLoader):
         def _is_toc_heading(title: str) -> bool:
             """Only headings matching TOC-level patterns are structural."""
             if _RE_CHAPTER_OR_INTRO.match(title):
+                return True
+            if _RE_PART.match(title):
                 return True
             if _RE_SECTION.match(title):
                 return True
@@ -261,6 +282,15 @@ class MarkdownLoader(BaseLoader):
                 title = heading_match.group(2).strip()
                 # Skip non-TOC headings (引言, 学习目标, (一), etc.)
                 if not _is_toc_heading(title):
+                    continue
+                # 第X部分: track separately, reset chapter tracking
+                if _RE_PART.match(title):
+                    sid = _struct_id(title)
+                    if sid in seen_parts:
+                        toc_end = i
+                        break
+                    seen_parts.add(sid)
+                    seen_chapters.clear()
                     continue
                 logical_level = self._classify_heading(title)
                 sid = _struct_id(title)
@@ -364,6 +394,10 @@ class MarkdownLoader(BaseLoader):
         # 导论/绪论
         if re.match(r"^(导论|绪论)", title):
             return re.match(r"^(导论|绪论)", title).group(1)
+        # 第X部分
+        part = re.match(r"第\s*(\d+)\s*部分", title)
+        if part:
+            return f"第{part.group(1)}部分"
         sect = re.match(r"第\s*(\d+)\s*节", title)
         if sect:
             return f"第{sect.group(1)}节"
@@ -411,7 +445,7 @@ class MarkdownLoader(BaseLoader):
             hm = _RE_HEADING.match(stripped)
             if hm:
                 title = hm.group(2).strip()
-                if _RE_CHAPTER.match(title):
+                if _RE_CHAPTER_OR_INTRO.match(title) or _RE_PART.match(title):
                     ch_num = MarkdownLoader._extract_num(title)
                     if ch_num is not None:
                         for ci in range(next_ch, len(ch_numbers)):
@@ -516,7 +550,8 @@ class MarkdownLoader(BaseLoader):
                 title = heading_match.group(2).strip()
                 # Only create new section for structural headings (in TOC or matching patterns)
                 is_structural = (
-                    _RE_CHAPTER.match(title)
+                    _RE_CHAPTER_OR_INTRO.match(title)
+                    or _RE_PART.match(title)
                     or _RE_SECTION.match(title)
                     or _RE_NUM_DOTTED.match(title)
                     or self._norm_toc_id(title) in toc_ids
