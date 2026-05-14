@@ -21,7 +21,7 @@ logger = get_logger()
 DEFAULT_BASE_URL = "https://mineru.net"
 POLL_INTERVAL = 5
 MAX_POLL_ATTEMPTS = 360
-MAX_PAGES_PER_REQUEST = 200
+MAX_PAGES_PER_REQUEST = 100
 
 
 class MinerUParser:
@@ -87,9 +87,22 @@ class MinerUParser:
         return batch_id, upload_url
 
     def _upload_file(self, upload_url: str, file_path: Path) -> None:
-        with open(file_path, "rb") as f:
-            resp = requests.put(upload_url, data=f, timeout=120)
-        resp.raise_for_status()
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+        timeout = max(300, int(size_mb * 5))  # 5s per MB, minimum 300s
+        logger.info(f"Uploading {file_path.name} ({size_mb:.1f}MB), timeout={timeout}s")
+        for attempt in range(3):
+            try:
+                with open(file_path, "rb") as f:
+                    resp = requests.put(upload_url, data=f, timeout=timeout)
+                resp.raise_for_status()
+                return
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt < 2:
+                    wait = (attempt + 1) * 10
+                    logger.warning(f"Upload failed (attempt {attempt+1}/3), retrying in {wait}s: {e}")
+                    time.sleep(wait)
+                else:
+                    raise
 
     def _poll_batch_result(self, batch_id: str) -> dict:
         url = f"{self.base_url}/api/v4/extract-results/batch/{batch_id}"
@@ -220,6 +233,26 @@ class MinerUParser:
         self._parse_single(absolute_path, target_dir)
         return target_dir
 
+    @staticmethod
+    def _split_pdf(file_path: Path, page_ranges: list[str], temp_dir: Path) -> list[Path]:
+        """Split a PDF into physical files by page ranges."""
+        reader = pypdf.PdfReader(str(file_path))
+        part_files = []
+        for idx, pr in enumerate(page_ranges, 1):
+            start, end = pr.split("-")
+            start_page = int(start) - 1  # 0-indexed
+            end_page = int(end)          # inclusive in pypdf
+            writer = pypdf.PdfWriter()
+            for p in range(start_page, end_page):
+                writer.add_page(reader.pages[p])
+            part_path = temp_dir / f"{file_path.stem}_part{idx}.pdf"
+            with open(part_path, "wb") as f:
+                writer.write(f)
+            part_files.append(part_path)
+            size_mb = part_path.stat().st_size / (1024 * 1024)
+            logger.info(f"Split part {idx}: pages {pr}, {size_mb:.1f}MB -> {part_path.name}")
+        return part_files
+
     def _parse_large_pdf(self, file_path: Path, target_dir: Path, total_pages: int) -> Path:
         page_ranges = self._build_page_ranges(total_pages, MAX_PAGES_PER_REQUEST)
         num_parts = len(page_ranges)
@@ -229,11 +262,14 @@ class MinerUParser:
         part_dirs: list[Path] = []
 
         try:
-            for idx, pr in enumerate(page_ranges, 1):
+            # Physically split PDF to avoid MinerU file size limit
+            part_files = self._split_pdf(file_path, page_ranges, temp_dir)
+
+            for idx, (part_file, pr) in enumerate(zip(part_files, page_ranges), 1):
                 part_output = target_dir / f"part_{idx}"
                 part_dirs.append(part_output)
                 logger.info(f"--- Processing batch {idx}/{num_parts}: pages {pr} ---")
-                self._parse_single(file_path, part_output, page_ranges=pr)
+                self._parse_single(part_file, part_output)
 
             merged_md = target_dir / f"{file_path.stem}.md"
             self._merge_markdowns(part_dirs, merged_md)

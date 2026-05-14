@@ -151,6 +151,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .img-viewer img{max-width:92vw;max-height:92vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
 
 .cur::after{content:'▋';color:var(--ac);animation:bl 1s step-end infinite;margin-left:1px}
+.ans.thinking-phase{opacity:.7;font-size:13px;border-left:2px solid var(--ac);padding-left:12px;margin-left:4px}
 @keyframes bl{50%{opacity:0}}
 @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -379,12 +380,8 @@ function msgHtml(m){
   if(m.role==='user')return `<div class="msg msg-u"><div class="bod"><div class="cont">${esc(m.content)}</div></div></div>`;
   let th='';
   if(m.thinking&&m.thinking.length){
-    const stepsHtml=renderSteps(m.thinking,!!m.content);
-    if(m.content){
-      th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${m.thinking.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
-    } else {
-      th=`<div class="think"><div class="think-h"><div class="spin"></div><span>思考中... (${m.thinking.length} 步)</span></div><div class="think-b open">${stepsHtml}</div></div>`;
-    }
+    const stepsHtml=renderSteps(m.thinking,true);
+    th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${m.thinking.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
   }
   const html=m.content?renderImages(marked.parse(m.content)):'';
   return `<div class="msg msg-a"><div class="bod">${th}<div class="ans">${html}</div></div></div>`;
@@ -419,30 +416,8 @@ async function send(){
     const sendId=curId.startsWith('_pending_')?'':curId;
     const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:hist,conv_id:sendId})});
     const reader=res.body.getReader(),dec=new TextDecoder();let buf='';
-
-    // State: track tool calls and answer streaming
-    let toolActive=false, toolCount=0, answerStarted=false;
-    // Buffer for tokens between tool calls (intermediate reasoning)
-    let betweenBuf='', betweenStepIdx=-1;
-    // Timeout to detect transition from tool-phase to answer-phase
-    let phaseTimer=null;
-
-    const flushBetween=()=>{
-      if(betweenBuf&&betweenStepIdx>=0){
-        const m=c.msgs[ai];
-        if(m.thinking[betweenStepIdx]){
-          m.thinking[betweenStepIdx].reasoning=(m.thinking[betweenStepIdx].reasoning||'')+betweenBuf;
-          betweenBuf='';upd(ai,m);
-        }
-      }
-    };
-
-    const startAnswer=()=>{
-      // Transition: move buffered tokens to reasoning, start answer mode
-      flushBetween();
-      answerStarted=true;
-      if(phaseTimer){clearTimeout(phaseTimer);phaseTimer=null}
-    };
+    const m=c.msgs[ai];
+    let answerStarted=false;
 
     while(true){
       const{done,value}=await reader.read();if(done)break;
@@ -453,49 +428,34 @@ async function send(){
         if(ln.startsWith('event: '))evt=ln.slice(7).trim();
         else if(ln.startsWith('data: ')&&evt){
           let d;try{d=JSON.parse(ln.slice(6))}catch{continue}
-          const m=c.msgs[ai];
 
           if(evt==='thinking'){
-            // New tool call
-            flushBetween();
-            if(phaseTimer){clearTimeout(phaseTimer);phaseTimer=null}
+            // Move current content to previous step's reasoning
+            if(m.content&&m.thinking.length){
+              m.thinking[m.thinking.length-1].reasoning=m.content;
+              m.content='';
+            }
             m.thinking.push({tool:d.tool,detail:d.detail||'',result:'',reasoning:''});
-            toolActive=true;toolCount++;betweenStepIdx=m.thinking.length-1;
             answerStarted=false;upd(ai,m);
           }
           else if(evt==='tool_result'){
             if(m.thinking.length){m.thinking[m.thinking.length-1].result=d.output||'';upd(ai,m)}
-            toolActive=false;
-            // Start a timer: if no new tool call within 1.5s, next tokens are the answer
-            if(phaseTimer)clearTimeout(phaseTimer);
-            phaseTimer=setTimeout(startAnswer,1500);
+          }
+          else if(evt==='thinking_done'){
+            // Backend signals: tools done, final answer starts now
+            answerStarted=true;
+            m.answerStarted=true;
+            // Move current content to last thinking step as reasoning
+            if(m.content&&m.thinking.length){
+              m.thinking[m.thinking.length-1].reasoning=m.content;
+              m.content='';
+            }
+            upd(ai,m);
           }
           else if(evt==='token'){
-            if(!answerStarted&&toolCount>0){
-              // Still in tool phase, buffer as reasoning
-              betweenBuf+=d.text;
-              if(betweenStepIdx>=0&&m.thinking[betweenStepIdx]){
-                m.thinking[betweenStepIdx].reasoning=betweenBuf;
-              }
-              upd(ai,m);
-              // Also start answer if this looks like the final answer
-              // (reset timer on each token)
-              if(phaseTimer)clearTimeout(phaseTimer);
-              phaseTimer=setTimeout(startAnswer,1500);
-            } else {
-              // Answer phase: stream directly
-              if(!answerStarted&&toolCount>0)startAnswer();
-              m.content+=d.text;upd(ai,m);
-            }
+            m.content+=d.text;upd(ai,m);
           }
           else if(evt==='done'){
-            // Final flush
-            if(!answerStarted&&betweenBuf){
-              // All buffered content is the answer
-              m.content+=betweenBuf;betweenBuf='';
-              if(betweenStepIdx>=0&&m.thinking[betweenStepIdx]){m.thinking[betweenStepIdx].reasoning=''}
-              upd(ai,m);
-            }
             if(d.conv_id&&curId.startsWith('_pending_')){
               const oldId=curId;curId=d.conv_id;
               convs[curId]=convs[oldId];delete convs[oldId];renderList();
@@ -506,25 +466,19 @@ async function send(){
         }
       }
     }
-    // Final cleanup
-    if(phaseTimer)clearTimeout(phaseTimer);
-    const m=c.msgs[ai];
-    if(betweenBuf&&!answerStarted){
-      m.content+=betweenBuf;betweenBuf='';
-      if(betweenStepIdx>=0&&m.thinking[betweenStepIdx]){m.thinking[betweenStepIdx].reasoning=''}
-      upd(ai,m);
-    }
   }catch(e){c.msgs[ai].content=`❌ 请求失败: ${e.message}`;upd(ai,c.msgs[ai])}
   streaming=false;document.getElementById('sndBtn').disabled=false;document.getElementById('inp').focus();
 }
 
-function renderSteps(steps,isAnswering){
+function renderSteps(steps,isDone){
   return steps.map(s=>{
-    // Show reasoning/thinking content prominently, tool info as subtle hint
     const reasoning=s.reasoning?`<div class="rn"><div class="rn-tx">${esc(s.reasoning)}</div></div>`:'';
-    const toolHint=isAnswering?`<div class="sd">${esc(s.tool)}</div>`:'';
-    const r=s.result&&!isAnswering?`<div class="sr">${esc(s.result).slice(0,80)}${s.result.length>80?'...':''}</div>`:'';
-    return `<div class="ts">${reasoning||r?`<div>${reasoning}${r}${toolHint}</div>`:`<div class="sd">${esc(s.tool)}</div>`}</div>`;
+    if(isDone){
+      // Collapsed view: show reasoning only, tool name as subtle label
+      return reasoning?`<div class="ts"><div>${reasoning}<div class="sd" style="margin-top:4px">${esc(s.tool)}</div></div></div>`:'';
+    }
+    // In-progress view: show reasoning streaming
+    return reasoning?`<div class="ts"><div>${reasoning}</div></div>`:`<div class="ts"><div class="sd">${esc(s.tool)}...</div></div>`;
   }).join('');
 }
 
@@ -534,18 +488,24 @@ function upd(idx,m){
   const el=els[n-1];if(!el)return;
   const bod=el.querySelector('.bod');
 
+  const hasThinking=m.thinking&&m.thinking.length>0;
+  // Phase: answerStarted means thinking is done
+  const done=m.answerStarted||(!hasThinking&&!!m.content&&!streaming);
+
   let th='';
-  if(m.thinking&&m.thinking.length){
-    const stepsHtml=renderSteps(m.thinking,!!m.content);
-    if(m.content){
+  if(hasThinking){
+    const stepsHtml=renderSteps(m.thinking,done);
+    if(done){
       th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${m.thinking.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
     } else {
-      th=`<div class="think"><div class="think-h"><div class="spin"></div><span>思考中... (${m.thinking.length} 步)</span></div><div class="think-b open">${stepsHtml}</div></div>`;
+      th=`<div class="think"><div class="think-h"><div class="spin"></div><span>思考中...</span></div><div class="think-b open">${stepsHtml}</div></div>`;
     }
   }
   const html=m.content?renderImages(marked.parse(m.content)):'';
   const cur=streaming&&m.content?'cur':'';
-  bod.innerHTML=th+`<div class="ans ${cur}">${html}</div>`;
+  // During thinking phase, dim the content area
+  const dim=!done&&hasThinking?'thinking-phase':'';
+  bod.innerHTML=th+`<div class="ans ${cur} ${dim}">${html}</div>`;
   expandImgRefs(bod);
   scrollBtm();
 }

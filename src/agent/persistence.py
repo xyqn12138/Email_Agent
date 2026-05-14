@@ -102,6 +102,14 @@ class ConversationStore:
         self.conn.commit()
         return cur.lastrowid
 
+    def update_message(self, msg_id: int, content: str, thinking: list | None = None) -> None:
+        thinking_json = json.dumps(thinking, ensure_ascii=False) if thinking else None
+        self.conn.execute(
+            "UPDATE messages SET content = ?, thinking = ? WHERE id = ?",
+            (content, thinking_json, msg_id),
+        )
+        self.conn.commit()
+
     def get_messages(self, conv_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT role, content, thinking, seq FROM messages WHERE conv_id = ? ORDER BY seq",

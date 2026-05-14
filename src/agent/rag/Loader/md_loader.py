@@ -11,12 +11,15 @@ LEVEL_SECTION = 2
 LEVEL_SUBSECTION = 3
 LEVEL_SUBSUB = 4
 
-_RE_CHAPTER = re.compile(r"^第\s*[0-9一二三四五六七八九十百千]+\s*[章节篇]\s*")
+_RE_CHAPTER = re.compile(r"^第\s*[0-9一二三四五六七八九十百千]+\s*[章篇]\s*")
+_RE_CHAPTER_OR_INTRO = re.compile(r"^(第\s*[0-9一二三四五六七八九十百千]+\s*[章篇]|导论|绪论)\s*")
 _RE_NUM_DOTTED = re.compile(r"^(\d+(?:\.\d+)*)\s+")
 _RE_NUM_PERIOD = re.compile(r"^(\d+)\.[\s]*")
 _RE_NUM_PAREN = re.compile(r"^[（(]?\d+[）)]\s*")
 _RE_CHINESE_NUM = re.compile(r"^[一二三四五六七八九十]+[、．.]\s*")
-_RE_TOC_ITEM = re.compile(r"^(\d+(?:\.\d+)*)\s+(.+?)\s+\d+\s*$")
+_RE_SECTION = re.compile(r"^第\s*[0-9一二三四五六七八九十百千]+\s*节\s*")
+_RE_TOC_ITEM = re.compile(r"^(\d+(?:\.\d+)*)\s+(.+?)[\s…／/]+\d+\s*$")
+_RE_TOC_CHINESE_NUM = re.compile(r"^([一二三四五六七八九十]+)[、．.]\s*(.+?)[\s…／/]+\d+\s*$")
 _RE_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
 
@@ -35,6 +38,10 @@ class MarkdownLoader(BaseLoader):
             if content_list_path:
                 line_to_page_map = self.build_line_page_map(text, content_list_path)
         toc_entries, toc_end = self._extract_toc_entries(text)
+        # Insert missing chapter headings where section numbers reset
+        toc_chapters = [re.sub(r"[\s…]+\d+\s*$", "", e["title"]).strip()
+                        for e in toc_entries if _RE_CHAPTER.match(e["title"])]
+        text = self._insert_missing_chapters(text, toc_chapters, toc_end)
         sections = self._parse_sections(text, toc_entries, toc_end)
         outline = self._build_outline(sections)
         results = []
@@ -84,8 +91,10 @@ class MarkdownLoader(BaseLoader):
         return results
 
     def _classify_heading(self, title: str) -> int:
-        if _RE_CHAPTER.match(title):
+        if _RE_CHAPTER_OR_INTRO.match(title):
             return LEVEL_CHAPTER
+        if _RE_SECTION.match(title):
+            return LEVEL_SECTION
         num_match = _RE_NUM_DOTTED.match(title)
         if num_match:
             depth = num_match.group(1).count(".")
@@ -96,7 +105,7 @@ class MarkdownLoader(BaseLoader):
             return LEVEL_SUBSUB
         if _RE_CHINESE_NUM.match(title):
             return LEVEL_SUBSUB
-        return LEVEL_CHAPTER
+        return LEVEL_SECTION
 
     @staticmethod
     def _find_content_list(md_path: Path) -> Path | None:
@@ -138,15 +147,18 @@ class MarkdownLoader(BaseLoader):
                     continue
                 overlap = 0
                 pos = 0
-                while True:
-                    idx = item_norm.find(chunk_norm[pos:pos + 50], pos)
+                while pos < len(chunk_norm):
+                    segment = chunk_norm[pos:pos + 50]
+                    if not segment:
+                        break
+                    idx = item_norm.find(segment, pos)
                     if idx < 0:
                         break
-                    end = min(len(item_norm), idx + 50, len(chunk_norm) - pos)
+                    end = min(len(item_norm), idx + 50, len(chunk_norm))
+                    if end <= pos:
+                        break
                     overlap += end - pos
                     pos = end
-                    if pos >= len(chunk_norm):
-                        break
                 score = overlap / max(len(item_norm), 1)
                 if score > best_score:
                     best_score = score
@@ -186,31 +198,59 @@ class MarkdownLoader(BaseLoader):
             page_end = page_start
         return (page_start, page_end)
 
-    def _extract_toc_entries(self, text: str) -> list[dict[str, Any]]:
+    # Regex: heading line with trailing page number (…… 3, … 18, ……120,  45, ／39)
+    _RE_HEADING_WITH_PAGE = re.compile(r"^(#{1,6})\s+(.+?)[\s…／/]+\d+\s*$")
+
+    def _extract_toc_entries(self, text: str) -> tuple[list[dict[str, Any]], int]:
         lines = text.splitlines()
+
+        # Step 1: Find TOC start
         toc_start = None
         for i, line in enumerate(lines):
             if line.strip() == "# 目录":
                 toc_start = i
                 break
+
+        # Step 2: If no "# 目录", detect TOC by pattern: consecutive chapter headings with page numbers
         if toc_start is None:
-            return []
+            toc_start = self._detect_toc_start(lines)
+        if toc_start is None:
+            return [], 0
 
         entries: list[dict[str, Any]] = []
         toc_end = len(lines)
         seen_chapters: set[str] = set()
 
         def _strip_page(title: str) -> str:
-            return re.sub(r"[\s…]+\d+\s*$", "", title).strip()
+            return re.sub(r"[\s…／/]+\d+\s*$", "", title).strip()
 
         def _struct_id(title: str) -> str:
             ch = re.match(r"第\s*(\d+)\s*章", title)
             if ch:
                 return f"第{ch.group(1)}章"
+            cn_ch = re.match(r"第([一二三四五六七八九十百千]+)\s*章", title)
+            if cn_ch:
+                num = cn_ch.group(1).translate(self._CN_NUM_MAP)
+                return f"第{num}章"
+            if re.match(r"^(导论|绪论)", title):
+                return re.match(r"^(导论|绪论)", title).group(1)
             sec = re.match(r"(\d+(?:\.\d+)*)", title)
             if sec:
                 return sec.group(1)
             return _strip_page(title)
+
+        def _is_toc_heading(title: str) -> bool:
+            """Only headings matching TOC-level patterns are structural."""
+            if _RE_CHAPTER_OR_INTRO.match(title):
+                return True
+            if _RE_SECTION.match(title):
+                return True
+            if re.match(r"^(本章小结|重要概念|复习思考题|参考文献|思考与练习题|关键词|小结|总结|练习|习题|思考题|实验\d)", title):
+                return True
+            # Two-level dotted numbers only (2.1, 3.2), not deeper (2.1.3)
+            if re.match(r"^\d+\.\d+\s+", title):
+                return True
+            return False
 
         for i in range(toc_start + 1, len(lines)):
             stripped = lines[i].strip()
@@ -219,14 +259,15 @@ class MarkdownLoader(BaseLoader):
             heading_match = _RE_HEADING.match(stripped)
             if heading_match:
                 title = heading_match.group(2).strip()
+                # Skip non-TOC headings (引言, 学习目标, (一), etc.)
+                if not _is_toc_heading(title):
+                    continue
                 logical_level = self._classify_heading(title)
                 sid = _struct_id(title)
-                # A chapter heading that was already seen means we've left
-                # the TOC and entered actual content
-                if _RE_CHAPTER.match(title) and sid in seen_chapters:
+                if _RE_CHAPTER_OR_INTRO.match(title) and sid in seen_chapters:
                     toc_end = i
                     break
-                if _RE_CHAPTER.match(title):
+                if _RE_CHAPTER_OR_INTRO.match(title):
                     seen_chapters.add(sid)
                 entries.append({
                     "title": title,
@@ -247,9 +288,21 @@ class MarkdownLoader(BaseLoader):
                     "line_no": i + 1,
                 })
                 continue
-            cleaned = re.sub(r"[\s…]+\d+\s*$", "", stripped)
+            # Chinese numeral TOC items: 一、xxx / 1
+            cn_match = _RE_TOC_CHINESE_NUM.match(stripped)
+            if cn_match:
+                cn_num = cn_match.group(1)
+                title_text = cn_match.group(2).strip()
+                full_title = f"{cn_num}、{title_text}"
+                entries.append({
+                    "title": full_title,
+                    "logical_level": LEVEL_SUBSUB,
+                    "line_no": i + 1,
+                })
+                continue
+            cleaned = re.sub(r"[\s…／/]+\d+\s*$", "", stripped)
             cleaned = re.sub(r"^#+\s*", "", cleaned)
-            if cleaned and _RE_CHAPTER.match(cleaned):
+            if cleaned and _RE_CHAPTER_OR_INTRO.match(cleaned):
                 sid = _struct_id(cleaned)
                 if sid in seen_chapters:
                     toc_end = i
@@ -263,6 +316,119 @@ class MarkdownLoader(BaseLoader):
 
         return entries, toc_end
 
+    @classmethod
+    def _detect_toc_start(cls, lines: list[str]) -> int | None:
+        """Detect TOC start by finding consecutive chapter headings with page numbers."""
+        toc_like_count = 0
+        toc_start_candidate = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            heading_match = _RE_HEADING.match(stripped)
+            if heading_match:
+                title = heading_match.group(2).strip()
+                # Check if this heading has a trailing page number (TOC pattern)
+                if cls._RE_HEADING_WITH_PAGE.match(stripped) and _RE_CHAPTER.match(title):
+                    if toc_like_count == 0:
+                        toc_start_candidate = i
+                    toc_like_count += 1
+                    if toc_like_count >= 3:
+                        # Found 3+ consecutive chapter headings with page numbers = TOC
+                        # Return one line before so the loop includes the first entry
+                        return max(0, toc_start_candidate - 1)
+                else:
+                    toc_like_count = 0
+                    toc_start_candidate = None
+            else:
+                # Non-heading lines between TOC entries are OK (sub-section listings)
+                # Only reset if we haven't started a candidate
+                if toc_like_count == 0:
+                    toc_start_candidate = None
+        return None
+
+    # Chinese numeral to Arabic mapping for normalization
+    _CN_NUM_MAP = str.maketrans("一二三四五六七八九十百千", "123456789TBM")
+
+    @staticmethod
+    def _norm_toc_id(title: str) -> str:
+        """Normalize a heading title to a structural identifier for TOC matching."""
+        ch = re.match(r"第\s*(\d+)\s*章", title)
+        if ch:
+            return f"第{ch.group(1)}章"
+        # Chinese numeral chapter: 第一章 → 第1章
+        cn_ch = re.match(r"第([一二三四五六七八九十百千]+)\s*章", title)
+        if cn_ch:
+            num = cn_ch.group(1).translate(MarkdownLoader._CN_NUM_MAP)
+            return f"第{num}章"
+        # 导论/绪论
+        if re.match(r"^(导论|绪论)", title):
+            return re.match(r"^(导论|绪论)", title).group(1)
+        sect = re.match(r"第\s*(\d+)\s*节", title)
+        if sect:
+            return f"第{sect.group(1)}节"
+        cn_sec = re.match(r"第([一二三四五六七八九十百千]+)\s*节", title)
+        if cn_sec:
+            num = cn_sec.group(1).translate(MarkdownLoader._CN_NUM_MAP)
+            return f"第{num}节"
+        sec = re.match(r"(\d+(?:\.\d+)*)", title)
+        if sec:
+            return sec.group(1)
+        return re.sub(r"[\s…／/]+\d+\s*$", "", title).strip()
+
+    @staticmethod
+    def _extract_num(title: str) -> int | None:
+        """Extract chapter/section number, supporting both Arabic and Chinese numerals."""
+        m = re.match(r"第\s*(\d+)", title)
+        if m:
+            return int(m.group(1))
+        m = re.match(r"第([一二三四五六七八九十百千]+)", title)
+        if m:
+            cn = m.group(1).translate(MarkdownLoader._CN_NUM_MAP)
+            mapping = {"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "T": 10}
+            return mapping.get(cn)
+        return None
+
+    @staticmethod
+    def _insert_missing_chapters(text: str, toc_chapters: list[str], toc_end: int = 0) -> str:
+        """Insert missing '# 第X章' headings where section numbers reset (第N节 → 第1节)."""
+        if not toc_chapters:
+            return text
+        lines = text.splitlines()
+        ch_numbers: list[int] = []
+        for ch in toc_chapters:
+            num = MarkdownLoader._extract_num(ch)
+            if num is not None:
+                ch_numbers.append(num)
+        next_ch = 0  # index of next chapter to insert
+        prev_sec = 0
+        result: list[str] = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if i < toc_end:
+                result.append(line)
+                continue
+            hm = _RE_HEADING.match(stripped)
+            if hm:
+                title = hm.group(2).strip()
+                if _RE_CHAPTER.match(title):
+                    ch_num = MarkdownLoader._extract_num(title)
+                    if ch_num is not None:
+                        for ci in range(next_ch, len(ch_numbers)):
+                            if ch_numbers[ci] == ch_num:
+                                next_ch = ci + 1
+                                break
+                    prev_sec = 0
+                elif _RE_SECTION.match(title):
+                    sec_num = MarkdownLoader._extract_num(title)
+                    if sec_num is not None and sec_num < prev_sec and sec_num == 1 and next_ch < len(toc_chapters):
+                        result.append(f"# {toc_chapters[next_ch]}")
+                        next_ch += 1
+                    if sec_num is not None:
+                        prev_sec = sec_num
+            result.append(line)
+        return "\n".join(result)
+
     def _parse_sections(self, text: str, toc_entries: list[dict[str, Any]], toc_end: int = 0) -> list[dict[str, Any]]:
         lines = text.splitlines()
         sections: list[dict[str, Any]] = []
@@ -271,14 +437,18 @@ class MarkdownLoader(BaseLoader):
         fence_marker: str | None = None
         toc_end_line = toc_end
 
+        # Build set of TOC heading identifiers for structural heading detection
+        toc_ids: set[str] = set()
         if toc_entries:
             for entry in toc_entries:
+                toc_ids.add(self._norm_toc_id(entry["title"]))
                 if entry["logical_level"] == LEVEL_CHAPTER:
                     toc_end_line = max(toc_end_line, entry["line_no"])
 
         def build_section(node: dict[str, Any]) -> None:
             body = self._clean_body([line for _, line in node["lines"]])
-            if not body:
+            # Keep chapter-level nodes even if body is empty (structural nodes)
+            if not body and node["logical_level"] > LEVEL_CHAPTER:
                 return
             path = [item["title"] for item in node["path_nodes"]]
             node_id = self._build_node_id(len(sections), path)
@@ -343,8 +513,23 @@ class MarkdownLoader(BaseLoader):
 
             heading_match = _RE_HEADING.match(stripped)
             if heading_match:
-                raw_level = len(heading_match.group(1))
                 title = heading_match.group(2).strip()
+                # Only create new section for structural headings (in TOC or matching patterns)
+                is_structural = (
+                    _RE_CHAPTER.match(title)
+                    or _RE_SECTION.match(title)
+                    or _RE_NUM_DOTTED.match(title)
+                    or self._norm_toc_id(title) in toc_ids
+                )
+                if not is_structural:
+                    # Non-structural heading (引言, 学习目标, etc.) → treat as content
+                    if stack:
+                        stack[-1]["lines"].append((line_no, line))
+                    else:
+                        preface_lines.append((line_no, line))
+                    continue
+
+                raw_level = len(heading_match.group(1))
                 logical_level = self._classify_heading(title)
 
                 build_preface()

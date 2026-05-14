@@ -33,9 +33,11 @@ def _format_results(contexts: list[dict]) -> str:
         text = ctx.get("chunk3_text") or ctx.get("chunk4_text") or ctx.get("search_hit", "")
         rerank_score = ctx.get("rerank_score")
         score_hint = f" [相关度: {rerank_score:.2f}]" if rerank_score else ""
+        page_num = ctx.get("page_number", 0)
+        page_hint = f", 第{page_num}页" if page_num else ""
         image_paths = ctx.get("image_paths", "")
         image_hint = f"\n  包含图片: {image_paths}" if image_paths else ""
-        parts.append(f"[{i}]{score_hint} {title}（来源: {source}, chunk_id: {chunk_id}）{image_hint}\n{text}")
+        parts.append(f"[{i}]{score_hint} {title}（来源: {source}{page_hint}, chunk_id: {chunk_id}）{image_hint}\n{text}")
     return "\n\n---\n\n".join(parts)
 
 

@@ -163,8 +163,9 @@ async def chat(request: Request):
         conv_id = str(int(datetime.now().timestamp() * 1000))
         store.create_conversation(conv_id, message[:30])
 
-    # Save user message
+    # Save user message and assistant placeholder
     store.add_message(conv_id, "user", message)
+    assistant_msg_id = store.add_message(conv_id, "assistant", "")
 
     graph = _get_graph()
     messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
@@ -176,6 +177,8 @@ async def chat(request: Request):
         got_tokens = False
         final_content = ""
         thinking_steps: list[dict] = []
+        has_tools = False
+        thinking_done_sent = False
 
         try:
             async for event in graph.astream_events(input_msg, config=config, version="v2"):
@@ -199,6 +202,7 @@ async def chat(request: Request):
                     elif isinstance(tool_input, str):
                         detail = tool_input[:120]
                     thinking_steps.append({"tool": display_name, "detail": detail, "result": ""})
+                    has_tools = True
                     yield _sse("thinking", {"tool": display_name, "detail": detail})
 
                 elif kind == "on_tool_end":
@@ -219,6 +223,10 @@ async def chat(request: Request):
                     elif hasattr(chunk, "content"):
                         text = chunk.content or ""
                     if text:
+                        # First token after tools = thinking is done
+                        if has_tools and not thinking_done_sent:
+                            thinking_done_sent = True
+                            yield _sse("thinking_done", {"steps": len(thinking_steps)})
                         got_tokens = True
                         final_content += text
                         yield _sse("token", {"text": text})
@@ -255,11 +263,11 @@ async def chat(request: Request):
             for i in range(0, len(final_content), chunk_size):
                 yield _sse("token", {"text": final_content[i:i + chunk_size]})
 
-        # Save assistant message
+        # Update assistant message with final content
         answer = final_content or ""
         try:
-            store.add_message(
-                conv_id, "assistant", answer,
+            store.update_message(
+                assistant_msg_id, answer,
                 thinking=thinking_steps if thinking_steps else None,
             )
         except Exception as e:

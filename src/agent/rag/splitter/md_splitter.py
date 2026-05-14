@@ -101,8 +101,18 @@ class MarkdownThreeLayerSplitter(BaseThreeLayerSplitter):
         seq: dict[int, int],
     ) -> str:
         parent_node_id = section.get("parent_node_id") or ""
+        # Direct match
         if parent_node_id and parent_node_id in l1_nodes:
             return l1_nodes[parent_node_id]
+        # Slug match: L1 node_id = "node_{idx}_{slug}", parent = "node_{slug}"
+        if parent_node_id:
+            parent_slug = parent_node_id.replace("node_", "", 1)
+            # Strip leading index if present (e.g., "3_第1章" → "第1章")
+            for nid, lid in l1_nodes.items():
+                if nid.startswith("node_"):
+                    nid_slug = nid.split("_", 2)[-1] if nid.count("_") >= 2 else nid[5:]
+                    if nid_slug == parent_slug:
+                        return lid
         titles = (section.get("title_path") or section.get("title") or "文档内容").split(" / ")
         root_title = titles[0]
         for nid, lid in l1_nodes.items():
@@ -300,14 +310,14 @@ class MarkdownThreeLayerSplitter(BaseThreeLayerSplitter):
 if __name__ == "__main__":
     from agent.rag.Loader.md_loader import MarkdownLoader
     loader = MarkdownLoader()
-    docs = loader.load(r"data\计算机操作系统  第4版·微课视频\计算机操作系统  第4版·微课视频.md")
+    docs = loader.load(r"data\算法基础\算法基础.md")
     splitter = MarkdownThreeLayerSplitter()
-    meta = {"filename": "计算机操作系统  第4版·微课视频.md", "file_path": r"data\计算机操作系统  第4版·微课视频\计算机操作系统  第4版·微课视频.md", "doc_id": "test-doc-id"}
+    meta = {"filename": "算法基础", "file_path": r"data\算法基础\算法基础.md", "doc_id": "test-doc-id"}
     chunks = splitter.split(docs, meta)
     print(f"总分块数: {len(chunks)}")
 
     for chunk in chunks:
-        if chunk["chunk_level"] <= 1:
+        if chunk["chunk_level"] <= 2:
             print(chunk)
 
         
