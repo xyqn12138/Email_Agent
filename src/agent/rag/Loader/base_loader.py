@@ -22,7 +22,7 @@ class BaseLoader(ABC):
 
     def build_metadata(self, absolute_path: Path, **extra: object) -> dict:
         metadata = {
-            "filename": absolute_path.name.lower(),
+            "filename": absolute_path.stem.lower(),
             "file_path": str(absolute_path),
         }
         metadata.update(extra)

@@ -64,6 +64,8 @@ def _read_knowledge_entries() -> list[dict]:
 
 
 def _add_knowledge_entry(filename: str, chunks: int):
+    # Strip .md/.markdown suffix for cleaner display
+    name = Path(filename).stem if Path(filename).suffix.lower() in (".md", ".markdown") else filename
     if not KNOWLEDGE_FILE.exists():
         KNOWLEDGE_FILE.write_text(
             "# 知识库课本列表\n\n"
@@ -75,7 +77,7 @@ def _add_knowledge_entry(filename: str, chunks: int):
     existing = [l for l in content.splitlines() if l.startswith("|") and "序号" not in l and "---" not in l]
     idx = len(existing) + 1
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    new_row = f"| {idx} | {filename} | {chunks} | {now} |\n"
+    new_row = f"| {idx} | {name} | {chunks} | {now} |\n"
     if not content.endswith("\n"):
         content += "\n"
     content += new_row
@@ -177,8 +179,16 @@ async def delete_knowledge(index: int):
 
 @app.get("/api/images/{path:path}")
 async def serve_image(path: str):
-    img_path = DATA_DIR / path
+    # Path from DB is like "data/python数据挖掘/images/xxx.jpg" or "images/xxx.jpg"
+    img_path = Path(path)
+    if not img_path.is_absolute():
+        img_path = DATA_DIR.parent / path  # project_root / path
     if not img_path.exists() or not img_path.is_file():
+        # Fallback: search by filename
+        filename = Path(path).name
+        matches = list(DATA_DIR.rglob(filename))
+        img_path = matches[0] if matches else None
+    if not img_path or not img_path.exists() or not img_path.is_file():
         return JSONResponse(status_code=404, content={"error": "image not found"})
     suffix = img_path.suffix.lower()
     media_types = {

@@ -166,7 +166,16 @@ class DataEmbedding:
                 "page_number": int(chunk.get("page_number") or 0),
             }
             if image_paths:
-                chunk_data["image_paths"] = ";".join(image_paths)
+                # Prepend book directory so paths are directly resolvable: data/{book}/images/xxx.jpg
+                file_path = chunk.get("file_path") or ""
+                book_dir = str(Path(file_path).parent) if file_path else ""
+                prefixed = []
+                for p in image_paths:
+                    if book_dir and not p.startswith(book_dir):
+                        prefixed.append(f"{book_dir}/{p}")
+                    else:
+                        prefixed.append(p)
+                chunk_data["image_paths"] = ";".join(prefixed)
             milvus_data.append(chunk_data)
         return milvus_data
 
