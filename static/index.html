@@ -13,7 +13,7 @@
   --bg-hover:#2a2a2a; --bg-think:#1a1a2e;
   --tx:#e8e8e8; --tx2:#9a9a9a; --tx3:#6b6b6b;
   --ac:#8b5cf6; --ac-glow:rgba(139,92,246,.12);
-  --bd:#3a3a3a; --green:#10a37f; --red:#ef4444;
+  --bd:#3a3a3a; --green:#10a37f; --red:#ef4444; --blue:#3b82f6;
   --r:12px; --rs:8px; --sbw:264px; --mw:800px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -23,96 +23,54 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
 
 /* ===== SIDEBAR ===== */
-.sidebar{
-  width:var(--sbw);min-width:var(--sbw);height:100%;background:var(--bg-sb);
-  display:flex;flex-direction:column;border-right:1px solid var(--bd);
-  transition:transform .28s ease;z-index:60;
-}
+.sidebar{width:var(--sbw);min-width:var(--sbw);height:100%;background:var(--bg-sb);display:flex;flex-direction:column;border-right:1px solid var(--bd);transition:transform .28s ease;z-index:60}
 .sb-head{padding:14px 16px;display:flex;align-items:center;gap:8px}
 .sb-head span{font-size:15px;font-weight:600}
-.new-btn{
-  margin:0 12px 10px;padding:9px 14px;background:var(--bg-card);border:1px solid var(--bd);
-  border-radius:var(--rs);color:var(--tx);font-size:13px;cursor:pointer;
-  display:flex;align-items:center;gap:8px;transition:background .15s;
-}
-.new-btn:hover{background:var(--bg-hover)}
-.sb-nav{flex:1;overflow-y:auto;padding:0 8px}
-.nav-i{
-  padding:9px 12px;border-radius:var(--rs);cursor:pointer;font-size:13px;
-  color:var(--tx2);display:flex;align-items:center;gap:10px;
-  transition:background .12s;margin-bottom:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
-}
+.sb-nav{flex:1;overflow-y:auto;padding:4px 8px}
+.nav-i{padding:9px 12px;border-radius:var(--rs);cursor:pointer;font-size:13px;color:var(--tx2);display:flex;align-items:center;gap:10px;transition:background .12s;margin-bottom:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;position:relative}
 .nav-i:hover{background:var(--bg-hover);color:var(--tx)}
 .nav-i.on{background:var(--bg-card);color:var(--tx)}
 .nav-i svg{width:16px;height:16px;flex-shrink:0}
-.nav-i{position:relative}
-.nav-del{
-  position:absolute;right:8px;top:50%;transform:translateY(-50%);
-  opacity:0;color:var(--tx3);font-size:16px;cursor:pointer;
-  width:20px;height:20px;display:flex;align-items:center;justify-content:center;
-  border-radius:4px;transition:all .12s;
-}
+.nav-del{position:absolute;right:8px;top:50%;transform:translateY(-50%);opacity:0;color:var(--tx3);font-size:16px;cursor:pointer;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:all .12s}
 .nav-i:hover .nav-del{opacity:1}
 .nav-del:hover{background:var(--red);color:#fff}
-.sb-foot{padding:10px 12px;border-top:1px solid var(--bd)}
-.sb-foot .nav-i{margin:0}
 
-/* mobile sidebar backdrop */
+/* Page tabs in sidebar */
+.sb-tabs{display:flex;gap:2px;padding:8px 8px 4px;border-bottom:1px solid var(--bd)}
+.sb-tab{flex:1;padding:8px 0;text-align:center;border-radius:var(--rs);cursor:pointer;font-size:13px;color:var(--tx3);transition:all .15s}
+.sb-tab:hover{color:var(--tx);background:var(--bg-hover)}
+.sb-tab.on{color:var(--tx);background:var(--bg-card)}
+
 .sb-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55}
 
 /* ===== MAIN ===== */
-.main{flex:1;display:flex;flex-direction:column;min-width:0;min-width:0}
-.topbar{
-  height:52px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;
-  border-bottom:1px solid var(--bd);flex-shrink:0;
-}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:52px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bd);flex-shrink:0}
 .topbar-title{font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.menu-btn{
-  display:none;background:none;border:1px solid var(--bd);color:var(--tx2);
-  width:36px;height:36px;border-radius:var(--rs);cursor:pointer;font-size:18px;
-  align-items:center;justify-content:center;
-}
+.menu-btn{display:none;background:none;border:1px solid var(--bd);color:var(--tx2);width:36px;height:36px;border-radius:var(--rs);cursor:pointer;font-size:18px;align-items:center;justify-content:center}
 
-/* ===== CHAT AREA ===== */
+/* ===== CHAT PAGE ===== */
+.page{display:none;flex:1;flex-direction:column;overflow:hidden}
+.page.active{display:flex}
 .chat-wrap{flex:1;overflow-y:auto;display:flex;flex-direction:column;padding:16px 12px}
-.chat-wrap::-webkit-scrollbar{width:6px}
-.chat-wrap::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
-
-/* Welcome */
 .welcome{margin:auto;text-align:center;padding:24px 16px;max-width:560px;width:100%}
 .welcome h1{font-size:24px;font-weight:600;margin-bottom:6px}
 .welcome p{color:var(--tx3);font-size:14px;margin-bottom:28px}
 .w-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.w-card{
-  background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r);
-  padding:14px 16px;cursor:pointer;text-align:left;transition:all .15s;
-}
+.w-card{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r);padding:14px 16px;cursor:pointer;text-align:left;transition:all .15s}
 .w-card:hover{border-color:var(--ac);background:var(--ac-glow)}
 .w-card .t{font-size:13px;font-weight:500;margin-bottom:3px}
 .w-card .d{font-size:12px;color:var(--tx3)}
-
-/* Messages */
 .msgs{width:100%;max-width:var(--mw);margin:0 auto;display:flex;flex-direction:column}
 .msg{display:flex;gap:10px;padding:14px 0;animation:fi .25s}
 .msg-u{justify-content:flex-end}
 .msg-u .bod{max-width:78%}
-.msg-u .cont{
-  background:var(--bg-card);border-radius:16px 16px 4px 16px;
-  padding:10px 14px;font-size:14px;line-height:1.7;word-break:break-word;
-}
+.msg-u .cont{background:var(--bg-card);border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:14px;line-height:1.7;word-break:break-word}
 .msg-a{justify-content:flex-start}
 .msg-a .bod{max-width:100%;flex:1;min-width:0}
 .msg-a .cont{font-size:14px;line-height:1.8}
-
-/* Thinking */
-.think{
-  margin-bottom:10px;border:1px solid var(--bd);border-radius:var(--rs);
-  overflow:hidden;background:var(--bg-think);
-}
-.think-h{
-  padding:8px 12px;display:flex;align-items:center;gap:7px;
-  cursor:pointer;font-size:12px;color:var(--tx2);transition:background .12s;
-}
+.think{margin-bottom:10px;border:1px solid var(--bd);border-radius:var(--rs);overflow:hidden;background:var(--bg-think)}
+.think-h{padding:8px 12px;display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--tx2);transition:background .12s}
 .think-h:hover{background:var(--bg-hover)}
 .think-h .arr{transition:transform .2s;font-size:10px}
 .think-h .arr.open{transform:rotate(90deg)}
@@ -126,8 +84,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .ts .sr{color:var(--tx3);margin-top:3px;border-left:2px solid var(--bd);padding-left:7px}
 .ts .rn{margin-top:4px;padding:6px 8px;background:rgba(139,92,246,.06);border-radius:6px;border-left:2px solid var(--ac)}
 .ts .rn-tx{font-size:12px;color:var(--tx2);line-height:1.6;white-space:pre-wrap;max-height:120px;overflow-y:auto}
-
-/* Markdown */
 .ans{padding:2px 0;overflow-wrap:break-word}
 .ans p{margin-bottom:8px}
 .ans ul,.ans ol{margin:6px 0;padding-left:22px}
@@ -146,70 +102,63 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .ans .img-grid{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
 .ans .img-grid img{max-width:280px;max-height:200px;border-radius:8px;cursor:pointer;border:1px solid var(--bd);object-fit:cover;transition:transform .15s}
 .ans .img-grid img:hover{transform:scale(1.02);border-color:var(--ac)}
-.img-viewer{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;display:none;align-items:center;justify-content:center;cursor:zoom-out}
-.img-viewer.show{display:flex}
-.img-viewer img{max-width:92vw;max-height:92vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
-
 .cur::after{content:'▋';color:var(--ac);animation:bl 1s step-end infinite;margin-left:1px}
 .ans.thinking-phase{opacity:.7;font-size:13px;border-left:2px solid var(--ac);padding-left:12px;margin-left:4px}
-@keyframes bl{50%{opacity:0}}
-@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-@keyframes sp{to{transform:rotate(360deg)}}
-
-/* ===== INPUT ===== */
 .inp-area{padding:8px 12px 14px;display:flex;justify-content:center;flex-shrink:0;background:var(--bg)}
-.inp-wrap{
-  width:100%;max-width:var(--mw);background:var(--bg-in);border:1px solid var(--bd);
-  border-radius:22px;padding:6px 6px 6px 16px;display:flex;align-items:flex-end;gap:6px;
-  transition:border-color .2s;
-}
+.inp-wrap{width:100%;max-width:var(--mw);background:var(--bg-in);border:1px solid var(--bd);border-radius:22px;padding:6px 6px 6px 16px;display:flex;align-items:flex-end;gap:6px;transition:border-color .2s}
 .inp-wrap:focus-within{border-color:var(--ac)}
-.inp-wrap textarea{
-  flex:1;background:0;border:0;outline:0;color:var(--tx);font-size:14px;
-  line-height:1.5;resize:none;max-height:140px;min-height:22px;font-family:inherit;padding:5px 0;
-}
+.inp-wrap textarea{flex:1;background:0;border:0;outline:0;color:var(--tx);font-size:14px;line-height:1.5;resize:none;max-height:140px;min-height:22px;font-family:inherit;padding:5px 0}
 .inp-wrap textarea::placeholder{color:var(--tx3)}
-.snd{
-  width:34px;height:34px;border-radius:50%;border:0;cursor:pointer;
-  background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;
-  flex-shrink:0;transition:all .15s;
-}
+.snd{width:34px;height:34px;border-radius:50%;border:0;cursor:pointer;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
 .snd:hover{background:#0e8c6f}
 .snd:disabled{background:var(--bd);cursor:not-allowed}
 .snd svg{width:16px;height:16px}
 
-/* ===== MODAL ===== */
-.ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;display:none;align-items:center;justify-content:center;padding:16px}
-.ov.show{display:flex}
-.mdl{
-  background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r);
-  padding:20px;width:100%;max-width:460px;max-height:85vh;overflow-y:auto;
-  box-shadow:0 16px 48px rgba(0,0,0,.5);position:relative;
-}
-.mdl h3{font-size:15px;margin-bottom:14px}
-.mdl-x{
-  position:absolute;top:14px;right:14px;background:0;border:0;
-  color:var(--tx3);font-size:20px;cursor:pointer;line-height:1;
-}
-.mdl-x:hover{color:var(--tx)}
+/* ===== KNOWLEDGE PAGE ===== */
+.kb-wrap{flex:1;overflow-y:auto;padding:20px 24px}
+.kb-section{margin-bottom:28px}
+.kb-section h2{font-size:16px;font-weight:600;margin-bottom:14px;color:var(--tx)}
+.kb-upload-zone{border:2px dashed var(--bd);border-radius:var(--r);padding:36px 20px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:16px}
+.kb-upload-zone:hover,.kb-upload-zone.over{border-color:var(--ac);background:var(--ac-glow)}
+.kb-upload-zone .ic{font-size:36px;margin-bottom:8px}
+.kb-upload-zone p{color:var(--tx2);font-size:14px}
+.kb-upload-zone .h{color:var(--tx3);font-size:12px;margin-top:4px}
+.kb-upload-zone input[type=file]{display:none}
 
-.up-zone{
-  border:2px dashed var(--bd);border-radius:var(--r);padding:32px 16px;
-  text-align:center;cursor:pointer;transition:all .2s;margin-bottom:12px;
-}
-.up-zone:hover,.up-zone.over{border-color:var(--ac);background:var(--ac-glow)}
-.up-zone .ic{font-size:32px;margin-bottom:6px}
-.up-zone p{color:var(--tx2);font-size:13px}
-.up-zone .h{color:var(--tx3);font-size:11px;margin-top:3px}
+/* Upload progress list */
+.upload-list{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.upload-item{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--rs);padding:12px 14px;animation:fi .25s}
+.upload-item .ui-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.upload-item .ui-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%}
+.upload-item .ui-status{font-size:12px;color:var(--tx2)}
+.upload-item .ui-status.error{color:var(--red)}
+.upload-item .ui-status.done{color:var(--green)}
+.ui-bar{height:4px;background:var(--bd);border-radius:2px;overflow:hidden;margin-bottom:6px}
+.ui-fill{height:100%;background:var(--ac);border-radius:2px;transition:width .3s}
+.ui-fill.done{background:var(--green)}
+.ui-fill.error{background:var(--red)}
+.ui-stage{font-size:11px;color:var(--tx3)}
 
-.prog{margin-top:10px}
-.prog-bar{height:4px;background:var(--bd);border-radius:2px;overflow:hidden}
-.prog-fill{height:100%;background:var(--ac);border-radius:2px;transition:width .3s}
-.prog-tx{font-size:12px;color:var(--tx2);margin-top:5px}
+/* Knowledge entries grid */
+.kb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.kb-card{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;transition:all .15s;position:relative}
+.kb-card:hover{border-color:var(--ac)}
+.kb-card .kc-name{font-size:14px;font-weight:500;margin-bottom:10px;word-break:break-word;padding-right:28px}
+.kb-card .kc-meta{display:flex;flex-direction:column;gap:4px}
+.kb-card .kc-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2)}
+.kb-card .kc-row svg{width:14px;height:14px;flex-shrink:0}
+.kb-card .kc-del{position:absolute;top:12px;right:12px;background:0;border:0;color:var(--tx3);cursor:pointer;font-size:16px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:all .12s}
+.kb-card .kc-del:hover{background:var(--red);color:#fff}
+.kb-empty{color:var(--tx3);font-size:14px;text-align:center;padding:40px 0}
 
-.kb-content{font-size:13px;line-height:1.8;color:var(--tx2);white-space:pre-wrap}
+.img-viewer{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;display:none;align-items:center;justify-content:center;cursor:zoom-out}
+.img-viewer.show{display:flex}
+.img-viewer img{max-width:92vw;max-height:92vh;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
 
-/* ===== RESPONSIVE ===== */
+@keyframes bl{50%{opacity:0}}
+@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes sp{to{transform:rotate(360deg)}}
+
 @media(max-width:768px){
   .sidebar{position:fixed;top:0;left:0;bottom:0;transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)}
@@ -218,164 +167,140 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
   .msg-u .bod{max-width:88%}
   .welcome h1{font-size:20px}
   .w-cards{grid-template-columns:1fr 1fr}
+  .kb-wrap{padding:16px}
+  .kb-grid{grid-template-columns:1fr}
 }
-@media(max-width:400px){
-  .w-cards{grid-template-columns:1fr}
-  .msg-u .bod{max-width:92%}
-}
+@media(max-width:400px){.w-cards{grid-template-columns:1fr}.msg-u .bod{max-width:92%}}
 </style>
 </head>
 <body>
 
 <aside class="sidebar" id="sb">
   <div class="sb-head"><span>📚 Study Agent</span></div>
-  <button class="new-btn" onclick="newChat()">＋ 新建对话</button>
-  <nav class="sb-nav" id="chatList"></nav>
-  <div class="sb-foot">
-    <div class="nav-i" onclick="openModal('upOv')">📤 上传文件</div>
-    <div class="nav-i" onclick="openModal('kbOv')">📖 知识库课本</div>
+  <div class="sb-tabs">
+    <div class="sb-tab on" data-page="chat" onclick="switchPage('chat')">💬 聊天</div>
+    <div class="sb-tab" data-page="kb" onclick="switchPage('kb')">📖 知识库</div>
   </div>
+  <nav class="sb-nav" id="chatList"></nav>
 </aside>
 <div class="sb-backdrop" id="sbBd" onclick="closeSb()"></div>
 
 <div class="main">
   <div class="topbar">
     <div style="display:flex;align-items:center;gap:10px;min-width:0">
-      <button class="menu-btn" id="menuBtn" onclick="openSb()">☰</button>
-      <div class="topbar-title" id="chatTitle">新对话</div>
+      <button class="menu-btn" onclick="openSb()">☰</button>
+      <div class="topbar-title" id="pageTitle">新对话</div>
     </div>
   </div>
 
-  <div class="chat-wrap" id="chatWrap">
-    <div class="welcome" id="welcome">
-      <h1>有什么可以帮你的？</h1>
-      <p>我可以帮你检索知识库中的学习资料，回答课程相关问题</p>
-      <div class="w-cards">
-        <div class="w-card" onclick="quickAsk('操作系统有哪些主要功能？')">
-          <div class="t">📖 课程复习</div><div class="d">操作系统有哪些主要功能？</div>
-        </div>
-        <div class="w-card" onclick="quickAsk('什么是动态规划？举个例子')">
-          <div class="t">💡 概念解析</div><div class="d">什么是动态规划？</div>
-        </div>
-        <div class="w-card" onclick="quickAsk('帮我总结进程同步与互斥的要点')">
-          <div class="t">📝 知识总结</div><div class="d">总结进程同步与互斥</div>
+  <!-- Chat Page -->
+  <div class="page active" id="page-chat">
+    <div class="chat-wrap" id="chatWrap">
+      <div class="welcome" id="welcome">
+        <h1>有什么可以帮你的？</h1>
+        <p>我可以帮你检索知识库中的学习资料，回答课程相关问题</p>
+        <div class="w-cards">
+          <div class="w-card" onclick="quickAsk('操作系统有哪些主要功能？')">
+            <div class="t">📖 课程复习</div><div class="d">操作系统有哪些主要功能？</div>
+          </div>
+          <div class="w-card" onclick="quickAsk('什么是动态规划？举个例子')">
+            <div class="t">💡 概念解析</div><div class="d">什么是动态规划？</div>
+          </div>
+          <div class="w-card" onclick="quickAsk('帮我总结进程同步与互斥的要点')">
+            <div class="t">📝 知识总结</div><div class="d">总结进程同步与互斥</div>
+          </div>
         </div>
       </div>
+      <div class="msgs" id="msgs" style="display:none"></div>
     </div>
-    <div class="msgs" id="msgs" style="display:none"></div>
-  </div>
-
-  <div class="inp-area">
-    <div class="inp-wrap">
-      <textarea id="inp" rows="1" placeholder="输入你的问题..." onkeydown="onKey(event)" oninput="autoH(this)"></textarea>
-      <button class="snd" id="sndBtn" onclick="send()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
-    </div>
-  </div>
-</div>
-
-<!-- Upload Modal -->
-<div class="ov" id="upOv" onclick="if(event.target===this)closeModal('upOv')">
-  <div class="mdl">
-    <button class="mdl-x" onclick="closeModal('upOv')">&times;</button>
-    <h3>📤 上传文件入库</h3>
-    <div class="up-zone" id="upZone" onclick="document.getElementById('fileIn').click()">
-      <div class="ic">📄</div>
-      <p>拖拽文件到此处，或点击选择</p>
-      <div class="h">支持 PDF / Markdown</div>
-    </div>
-    <input type="file" id="fileIn" accept=".pdf,.md,.markdown" hidden>
-    <div class="prog" id="prog" style="display:none">
-      <div class="prog-bar"><div class="prog-fill" id="progFill" style="width:0"></div></div>
-      <div class="prog-tx" id="progTx"></div>
+    <div class="inp-area">
+      <div class="inp-wrap">
+        <textarea id="inp" rows="1" placeholder="输入你的问题..." onkeydown="onKey(event)" oninput="autoH(this)"></textarea>
+        <button class="snd" id="sndBtn" onclick="send()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Knowledge Modal -->
-<div class="ov" id="kbOv" onclick="if(event.target===this)closeModal('kbOv')">
-  <div class="mdl">
-    <button class="mdl-x" onclick="closeModal('kbOv')">&times;</button>
-    <h3>📖 已入库课本</h3>
-    <div class="kb-content" id="kbCont">加载中...</div>
+  <!-- Knowledge Page -->
+  <div class="page" id="page-kb">
+    <div class="kb-wrap">
+      <div class="kb-section">
+        <h2>上传课本</h2>
+        <div class="kb-upload-zone" id="uploadZone">
+          <div class="ic">📄</div>
+          <p>拖拽文件到此处，或点击选择</p>
+          <div class="h">支持 PDF / Markdown 文件</div>
+          <input type="file" id="fileInput" accept=".pdf,.md,.markdown">
+        </div>
+        <div class="upload-list" id="uploadList"></div>
+      </div>
+      <div class="kb-section">
+        <h2>已入库课本</h2>
+        <div class="kb-grid" id="kbGrid"><div class="kb-empty">暂无已入库的课本</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Image Viewer -->
-<div class="img-viewer" id="imgViewer" onclick="this.classList.remove('show')">
-  <img id="imgViewerImg" src="" alt="">
-</div>
+<div class="img-viewer" id="imgViewer" onclick="this.classList.remove('show')"><img></div>
 
 <script>
-marked.setOptions({
-  highlight:(c,l)=>{if(l&&hljs.getLanguage(l))return hljs.highlight(c,{language:l}).value;return hljs.highlightAuto(c).value},
-  breaks:true,
-});
+marked.setOptions({highlight:(c,l)=>{if(l&&hljs.getLanguage(l))return hljs.highlight(c,{language:l}).value;return hljs.highlightAuto(c).value},breaks:true});
 
-let convs={},curId=null,streaming=false;
+let convs={},curId=null,streaming=false,curPage='chat';
 
-/* Init: load conversations from server */
-async function initConvs(){
-  try{
-    const res=await fetch('/api/conversations');
-    const data=await res.json();
-    (data.conversations||[]).forEach(c=>{convs[c.id]={title:c.title,msgs:[],loaded:false}});
-    renderList();
-    // Auto-select first conversation
-    const ids=Object.keys(convs);
-    if(ids.length)switchChat(ids[0]);
-  }catch(e){console.warn('Failed to load conversations:',e)}
+/* ===== Page switching ===== */
+function switchPage(page){
+  curPage=page;
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  document.querySelectorAll('.sb-tab').forEach(t=>t.classList.toggle('on',t.dataset.page===page));
+  document.getElementById('pageTitle').textContent=page==='chat'?(convs[curId]?.title||'新对话'):'知识库管理';
+  if(page==='kb')loadKnowledge();
+  closeSb();
 }
 
-/* Sidebar */
+/* ===== Sidebar ===== */
 function openSb(){document.getElementById('sb').classList.add('open');document.getElementById('sbBd').classList.add('show')}
 function closeSb(){document.getElementById('sb').classList.remove('open');document.getElementById('sbBd').classList.remove('show')}
-function openModal(id){document.getElementById(id).classList.add('show');closeSb()}
-function closeModal(id){document.getElementById(id).classList.remove('show')}
 
-function newChat(){
-  curId=null;renderList();renderMsgs();
-  document.getElementById('inp').focus();closeSb();
+async function initConvs(){
+  try{const res=await fetch('/api/conversations');const data=await res.json();
+    (data.conversations||[]).forEach(c=>{convs[c.id]={title:c.title,msgs:[],loaded:false}});
+    renderList();
+    const ids=Object.keys(convs);if(ids.length)switchChat(ids[0]);
+  }catch(e){console.warn('Failed to load conversations:',e)}
 }
-async function switchChat(id){
-  curId=id;renderList();closeSb();
-  const c=convs[id];
-  if(c&&!c.loaded){
-    try{
-      const res=await fetch(`/api/conversations/${id}`);
-      const data=await res.json();
-      c.msgs=(data.messages||[]).map(m=>({role:m.role,content:m.content,thinking:m.thinking||[]}));
-      c.loaded=true;
-    }catch(e){console.warn('Failed to load messages:',e)}
-  }
+function newChat(){curId=null;renderList();renderMsgs();document.getElementById('inp').focus();closeSb();switchPage('chat')}
+async function switchChat(id){curId=id;renderList();closeSb();switchPage('chat');
+  const c=convs[id];if(c&&!c.loaded){try{const res=await fetch(`/api/conversations/${id}`);const data=await res.json();
+    c.msgs=(data.messages||[]).map(m=>({role:m.role,content:m.content,thinking:m.thinking||[]}));c.loaded=true;}catch(e){}}
   renderMsgs();
 }
-
 function renderList(){
   const el=document.getElementById('chatList');
-  el.innerHTML=Object.keys(convs).filter(id=>!id.startsWith('_pending_')).reverse().map(id=>{
+  el.innerHTML=`<div class="nav-i" onclick="newChat()">＋ 新建对话</div>`+
+    Object.keys(convs).filter(id=>!id.startsWith('_pending_')).reverse().map(id=>{
     const c=convs[id],cls=id===curId?'on':'';
-    return `<div class="nav-i ${cls}" onclick="switchChat('${id}')"><span>${esc(c.title.slice(0,24))}${c.title.length>24?'…':''}</span><span class="nav-del" onclick="event.stopPropagation();delChat('${id}')" title="删除">×</span></div>`;
+    return `<div class="nav-i ${cls}" onclick="switchChat('${id}')"><span>${esc(c.title.slice(0,24))}${c.title.length>24?'…':''}</span><span class="nav-del" onclick="event.stopPropagation();delChat('${id}')">×</span></div>`;
   }).join('');
 }
+async function delChat(id){if(!confirm('确定删除这个对话？'))return;try{await fetch(`/api/conversations/${id}`,{method:'DELETE'})}catch{}delete convs[id];if(curId===id){curId=null;renderMsgs()}renderList()}
 
-async function delChat(id){
-  if(!confirm('确定删除这个对话？'))return;
-  try{await fetch(`/api/conversations/${id}`,{method:'DELETE'})}catch{}
-  delete convs[id];
-  if(curId===id){curId=null;renderMsgs()}
-  renderList();
-}
-
-/* Messages */
+/* ===== Messages ===== */
 function renderMsgs(){
-  const w=document.getElementById('welcome'),m=document.getElementById('msgs'),t=document.getElementById('chatTitle');
+  const w=document.getElementById('welcome'),m=document.getElementById('msgs'),t=document.getElementById('pageTitle');
   if(!curId||!convs[curId]){w.style.display='';m.style.display='none';t.textContent='新对话';return}
   const c=convs[curId];w.style.display='none';m.style.display='';t.textContent=c.title;
-  m.innerHTML=c.msgs.map(msgHtml).join('');
-  m.querySelectorAll('.msg-a .bod').forEach(b=>expandImgRefs(b));
-  scrollBtm();
+  m.innerHTML=c.msgs.map(msgHtml).join('');scrollBtm();
 }
-
+function renderSteps(steps,isDone){
+  return steps.map(s=>{
+    const reasoning=s.reasoning?`<div class="rn"><div class="rn-tx">${esc(s.reasoning)}</div></div>`:'';
+    if(isDone)return reasoning?`<div class="ts"><div>${reasoning}<div class="sd" style="margin-top:4px">${esc(s.tool)}</div></div></div>`:'';
+    return reasoning?`<div class="ts"><div>${reasoning}</div></div>`:`<div class="ts"><div class="sd">${esc(s.tool)}...</div></div>`;
+  }).join('');
+}
 function msgHtml(m){
   if(m.role==='user')return `<div class="msg msg-u"><div class="bod"><div class="cont">${esc(m.content)}</div></div></div>`;
   let th='';
@@ -386,196 +311,128 @@ function msgHtml(m){
   const html=m.content?renderImages(marked.parse(m.content)):'';
   return `<div class="msg msg-a"><div class="bod">${th}<div class="ans">${html}</div></div></div>`;
 }
-
 function toggleTh(h){const b=h.nextElementSibling,a=h.querySelector('.arr');b.classList.toggle('open');a.classList.toggle('open')}
 function scrollBtm(){const el=document.getElementById('chatWrap');requestAnimationFrame(()=>el.scrollTop=el.scrollHeight)}
 
-/* Chat */
+/* ===== Chat ===== */
 function quickAsk(q){document.getElementById('inp').value=q;send()}
 function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}
 function autoH(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,140)+'px'}
 
 async function send(){
-  const inp=document.getElementById('inp'),text=inp.value.trim();
-  if(!text||streaming)return;
-
-  // If no current conversation, create local placeholder
-  if(!curId){
-    curId='_pending_'+Date.now();
-    convs[curId]={title:text.slice(0,30),msgs:[],loaded:true};
-  }
+  const inp=document.getElementById('inp'),text=inp.value.trim();if(!text||streaming)return;
+  if(!curId){curId='_pending_'+Date.now();convs[curId]={title:text.slice(0,30),msgs:[],loaded:true}}
   const c=convs[curId];c.msgs.push({role:'user',content:text});
-  if(c.msgs.length===1){c.title=text.slice(0,30);document.getElementById('chatTitle').textContent=c.title}
-  renderList();
-  const ai=c.msgs.length;c.msgs.push({role:'ai',content:'',thinking:[]});
-  inp.value='';inp.style.height='auto';renderMsgs();
-  streaming=true;document.getElementById('sndBtn').disabled=true;
-
+  if(c.msgs.length===1){c.title=text.slice(0,30);document.getElementById('pageTitle').textContent=c.title}
+  renderList();const ai=c.msgs.length;c.msgs.push({role:'ai',content:'',thinking:[]});
+  inp.value='';inp.style.height='auto';renderMsgs();streaming=true;document.getElementById('sndBtn').disabled=true;
   try{
     const hist=c.msgs.slice(0,-1).filter(m=>m.role==='user'||(m.role==='ai'&&m.content)).map(m=>({role:m.role==='ai'?'assistant':m.role,content:m.content}));
     const sendId=curId.startsWith('_pending_')?'':curId;
     const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:hist,conv_id:sendId})});
     const reader=res.body.getReader(),dec=new TextDecoder();let buf='';
+    let toolCount=0,answerStarted=false,phaseTimer=null;
     const m=c.msgs[ai];
-    let answerStarted=false;
-
-    while(true){
-      const{done,value}=await reader.read();if(done)break;
-      buf+=dec.decode(value,{stream:true});
-      const lines=buf.split('\n');buf=lines.pop()||'';
-      let evt=null;
-      for(const ln of lines){
-        if(ln.startsWith('event: '))evt=ln.slice(7).trim();
-        else if(ln.startsWith('data: ')&&evt){
-          let d;try{d=JSON.parse(ln.slice(6))}catch{continue}
-
-          if(evt==='thinking'){
-            // Move current content to previous step's reasoning
-            if(m.content&&m.thinking.length){
-              m.thinking[m.thinking.length-1].reasoning=m.content;
-              m.content='';
-            }
-            m.thinking.push({tool:d.tool,detail:d.detail||'',result:'',reasoning:''});
-            answerStarted=false;upd(ai,m);
-          }
-          else if(evt==='tool_result'){
-            if(m.thinking.length){m.thinking[m.thinking.length-1].result=d.output||'';upd(ai,m)}
-          }
-          else if(evt==='thinking_done'){
-            // Backend signals: tools done, final answer starts now
-            answerStarted=true;
-            m.answerStarted=true;
-            // Move current content to last thinking step as reasoning
-            if(m.content&&m.thinking.length){
-              m.thinking[m.thinking.length-1].reasoning=m.content;
-              m.content='';
-            }
-            upd(ai,m);
-          }
-          else if(evt==='token'){
-            m.content+=d.text;upd(ai,m);
-          }
-          else if(evt==='done'){
-            if(d.conv_id&&curId.startsWith('_pending_')){
-              const oldId=curId;curId=d.conv_id;
-              convs[curId]=convs[oldId];delete convs[oldId];renderList();
-            }
-          }
+    const startAnswer=()=>{if(answerStarted)return;answerStarted=true;if(phaseTimer){clearTimeout(phaseTimer);phaseTimer=null}
+      if(m.content&&m.thinking.length){m.thinking[m.thinking.length-1].reasoning=m.content;m.content=''}upd(ai,m)};
+    while(true){const{done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');buf=lines.pop()||'';let evt=null;
+      for(const ln of lines){if(ln.startsWith('event: '))evt=ln.slice(7).trim();
+        else if(ln.startsWith('data: ')&&evt){let d;try{d=JSON.parse(ln.slice(6))}catch{continue}
+          if(evt==='thinking'){if(phaseTimer){clearTimeout(phaseTimer);phaseTimer=null}
+            if(m.content&&m.thinking.length){m.thinking[m.thinking.length-1].reasoning=m.content;m.content=''}
+            m.thinking.push({tool:d.tool,detail:d.detail||'',result:'',reasoning:''});toolCount++;answerStarted=false;upd(ai,m)}
+          else if(evt==='tool_result'){if(m.thinking.length){m.thinking[m.thinking.length-1].result=d.output||'';upd(ai,m)}
+            if(phaseTimer)clearTimeout(phaseTimer);phaseTimer=setTimeout(startAnswer,1500)}
+          else if(evt==='token'){m.content+=d.text;if(!answerStarted&&toolCount>0){if(phaseTimer)clearTimeout(phaseTimer);phaseTimer=setTimeout(startAnswer,1500)}upd(ai,m)}
+          else if(evt==='thinking_done'){startAnswer()}
+          else if(evt==='done'){if(!answerStarted)startAnswer();if(d.conv_id&&curId.startsWith('_pending_')){const oldId=curId;curId=d.conv_id;convs[curId]=convs[oldId];delete convs[oldId];renderList()}}
           else if(evt==='error'){m.content+=`\n\n❌ ${d.message}`;upd(ai,m)}
-          evt=null;
-        }
-      }
-    }
+          evt=null;}}}
+    if(phaseTimer)clearTimeout(phaseTimer);if(!answerStarted)startAnswer();
   }catch(e){c.msgs[ai].content=`❌ 请求失败: ${e.message}`;upd(ai,c.msgs[ai])}
   streaming=false;document.getElementById('sndBtn').disabled=false;document.getElementById('inp').focus();
 }
-
-function renderSteps(steps,isDone){
-  return steps.map(s=>{
-    const reasoning=s.reasoning?`<div class="rn"><div class="rn-tx">${esc(s.reasoning)}</div></div>`:'';
-    if(isDone){
-      // Collapsed view: show reasoning only, tool name as subtle label
-      return reasoning?`<div class="ts"><div>${reasoning}<div class="sd" style="margin-top:4px">${esc(s.tool)}</div></div></div>`:'';
-    }
-    // In-progress view: show reasoning streaming
-    return reasoning?`<div class="ts"><div>${reasoning}</div></div>`:`<div class="ts"><div class="sd">${esc(s.tool)}...</div></div>`;
-  }).join('');
-}
-
 function upd(idx,m){
   const els=document.querySelectorAll('#msgs .msg-a');let n=0;const c=convs[curId];
-  for(let i=0;i<=idx;i++)if(c.msgs[i].role==='ai')n++;
-  const el=els[n-1];if(!el)return;
-  const bod=el.querySelector('.bod');
-
+  for(let i=0;i<=idx;i++)if(c.msgs[i].role==='ai')n++;const el=els[n-1];if(!el)return;
   const hasThinking=m.thinking&&m.thinking.length>0;
-  // Phase: answerStarted means thinking is done
-  const done=m.answerStarted||(!hasThinking&&!!m.content&&!streaming);
-
+  const answerPhase=hasThinking&&m.content&&!streaming?true:hasThinking&&m.thinking.every(s=>s.reasoning||s.result)&&m.content?true:!hasThinking&&m.content?true:false;
   let th='';
-  if(hasThinking){
-    const stepsHtml=renderSteps(m.thinking,done);
-    if(done){
-      th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${m.thinking.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
-    } else {
-      th=`<div class="think"><div class="think-h"><div class="spin"></div><span>思考中...</span></div><div class="think-b open">${stepsHtml}</div></div>`;
-    }
-  }
+  if(hasThinking){const stepsHtml=renderSteps(m.thinking,answerPhase);
+    if(answerPhase)th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${m.thinking.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
+    else th=`<div class="think"><div class="think-h"><div class="spin"></div><span>思考中...</span></div><div class="think-b open">${stepsHtml}</div></div>`}
   const html=m.content?renderImages(marked.parse(m.content)):'';
   const cur=streaming&&m.content?'cur':'';
-  // During thinking phase, dim the content area
-  const dim=!done&&hasThinking?'thinking-phase':'';
-  bod.innerHTML=th+`<div class="ans ${cur} ${dim}">${html}</div>`;
-  expandImgRefs(bod);
-  scrollBtm();
+  const dim=!answerPhase&&hasThinking&&m.content?'thinking-phase':'';
+  el.querySelector('.bod').innerHTML=th+`<div class="ans ${cur} ${dim}">${html}</div>`;
+  expandImgRefs(el.querySelector('.bod'));scrollBtm();
 }
+
+/* ===== Knowledge Base ===== */
+async function loadKnowledge(){
+  try{const res=await fetch('/api/knowledge');const data=await res.json();renderKbGrid(data.entries||[])}catch{renderKbGrid([])}
+}
+function renderKbGrid(entries){
+  const el=document.getElementById('kbGrid');
+  if(!entries.length){el.innerHTML='<div class="kb-empty">暂无已入库的课本</div>';return}
+  el.innerHTML=entries.map(e=>`
+    <div class="kb-card">
+      <button class="kc-del" onclick="delKb(${e.index})" title="删除">×</button>
+      <div class="kc-name">${esc(e.filename)}</div>
+      <div class="kc-meta">
+        <div class="kc-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>${e.chunks} 个文档片段</div>
+        <div class="kc-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${e.uploaded_at}</div>
+      </div>
+    </div>`).join('');
+}
+async function delKb(idx){if(!confirm('确定删除该课本？'))return;try{await fetch(`/api/knowledge/${idx}`,{method:'DELETE'})}catch{}loadKnowledge()}
 
 /* Upload */
-const uz=document.getElementById('upZone');
+const uz=document.getElementById('uploadZone'),fi=document.getElementById('fileInput');
+uz.addEventListener('click',()=>fi.click());
 uz.addEventListener('dragover',e=>{e.preventDefault();uz.classList.add('over')});
 uz.addEventListener('dragleave',()=>uz.classList.remove('over'));
-uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('over');if(e.dataTransfer.files.length)doUp(e.dataTransfer.files[0])});
-document.getElementById('fileIn').addEventListener('change',e=>{if(e.target.files.length)doUp(e.target.files[0])});
+uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('over');if(e.dataTransfer.files.length)doUpload(e.dataTransfer.files[0])});
+fi.addEventListener('change',e=>{if(e.target.files.length)doUpload(e.target.files[0]);e.target.value=''});
 
-async function doUp(file){
-  const p=document.getElementById('prog'),f=document.getElementById('progFill'),t=document.getElementById('progTx');
-  p.style.display='';f.style.width='10%';t.textContent=`正在上传 ${file.name}...`;
+async function doUpload(file){
+  const id='up_'+Date.now();
+  const html=`<div class="upload-item" id="${id}"><div class="ui-head"><div class="ui-name">${esc(file.name)}</div><div class="ui-status">准备中...</div></div><div class="ui-bar"><div class="ui-fill" style="width:0"></div></div><div class="ui-stage"></div></div>`;
+  document.getElementById('uploadList').insertAdjacentHTML('afterbegin',html);
+  const item=document.getElementById(id);
   const fd=new FormData();fd.append('file',file);
   try{
-    f.style.width='30%';t.textContent='MinerU 转换中... (如为 PDF)';
     const res=await fetch('/api/upload',{method:'POST',body:fd});
-    f.style.width='90%';t.textContent='知识库载入中...';
-    const d=await res.json();f.style.width='100%';
-    t.textContent=d.status==='ok'?`✅ ${d.filename} 上传成功，${d.chunks} 个片段已入库`:`❌ ${d.message}`;
-  }catch(e){f.style.width='100%';t.textContent=`❌ 上传失败: ${e.message}`}
+    const reader=res.body.getReader(),dec=new TextDecoder();let buf='';
+    while(true){const{done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});
+      const lines=buf.split('\n');buf=lines.pop()||'';let evt=null;
+      for(const ln of lines){if(ln.startsWith('event: '))evt=ln.slice(7).trim();
+        else if(ln.startsWith('data: ')&&evt){let d;try{d=JSON.parse(ln.slice(6))}catch{continue}
+          if(evt==='progress'){
+            item.querySelector('.ui-fill').style.width=d.percent+'%';
+            item.querySelector('.ui-stage').textContent=d.stage;
+            const st=item.querySelector('.ui-status');
+            if(d.done){
+              if(d.error){st.textContent='失败';st.className='ui-status error';item.querySelector('.ui-fill').className='ui-fill error'}
+              else{st.textContent=`完成 · ${d.chunks} 片段`;st.className='ui-status done';item.querySelector('.ui-fill').className='ui-fill done';loadKnowledge()}
+            }else{st.textContent=d.percent+'%'}
+          }
+          evt=null;}}}
+  }catch(e){
+    item.querySelector('.ui-status').textContent='请求失败';item.querySelector('.ui-status').className='ui-status error';
+    item.querySelector('.ui-fill').className='ui-fill error';
+  }
 }
 
-/* Knowledge */
-async function showKb(){
-  try{const res=await fetch('/api/knowledge');const d=await res.json();document.getElementById('kbCont').textContent=d.content}
-  catch{document.getElementById('kbCont').textContent='加载失败'}
-}
-document.getElementById('kbOv').addEventListener('show',showKb);
-// load on open
-const kbObs=new MutationObserver(()=>{if(document.getElementById('kbOv').classList.contains('show'))showKb()});
-kbObs.observe(document.getElementById('kbOv'),{attributes:true,attributeFilter:['class']});
-
+/* ===== Images ===== */
+function renderImages(html){return html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(alt,path)=>{
+  if(path.startsWith('http'))return`<img src="${path}" alt="${alt}" onclick="viewImg(this.src)">`;
+  return`<img src="/api/images/${encodeURIComponent(path)}" alt="${alt}" onclick="viewImg(this.src)">`})}
+function expandImgRefs(el){el.querySelectorAll('.img-grid img').forEach(img=>{img.onclick=()=>viewImg(img.src)})}
+function viewImg(src){const v=document.getElementById('imgViewer');v.querySelector('img').src=src;v.classList.add('show')}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
-function renderImages(html){
-  // Match image paths like images/xxx.jpg or data/xxx/images/yyy.png
-  const re=/(^|[\s,;:：])((?:[\w\-]+\/)*[\w\-]+\.(?:jpg|jpeg|png|gif|bmp|webp))(?=[\s,;:：]|$)/gmi;
-  let found=false;
-  const replaced=html.replace(re,(match,prefix,path)=>{
-    if(found)return match; // only first batch
-    return prefix+`<span class="img-ref" data-src="/api/images/${path}">${path}</span>`;
-  });
-  // Collect all img-ref spans into a grid after each answer block
-  return replaced;
-}
-
-function expandImgRefs(container){
-  const refs=container.querySelectorAll('.img-ref');
-  if(!refs.length)return;
-  const grid=document.createElement('div');grid.className='img-grid';
-  refs.forEach(ref=>{
-    const src=ref.dataset.src;
-    const img=document.createElement('img');img.src=src;img.loading='lazy';
-    img.onclick=e=>{e.stopPropagation();showImg(src)};
-    img.onerror=()=>{img.style.display='none'};
-    grid.appendChild(img);
-    ref.replaceWith(document.createTextNode(ref.textContent));
-  });
-  // Insert grid after the paragraph containing the refs
-  const lastRef=refs[refs.length-1];
-  if(grid.children.length)container.appendChild(grid);
-}
-
-function showImg(src){
-  const v=document.getElementById('imgViewer');
-  document.getElementById('imgViewerImg').src=src;
-  v.classList.add('show');
-}
 initConvs();
 </script>
 </body>

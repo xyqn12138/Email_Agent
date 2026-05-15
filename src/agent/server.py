@@ -40,8 +40,29 @@ def _get_graph():
 
 
 # ============================================================
-# Knowledge.md
+# Knowledge Base
 # ============================================================
+def _read_knowledge_entries() -> list[dict]:
+    """Parse knowledge.md into structured entries."""
+    if not KNOWLEDGE_FILE.exists():
+        return []
+    entries = []
+    for line in KNOWLEDGE_FILE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("|") and "序号" not in line and "---" not in line:
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 4:
+                try:
+                    entries.append({
+                        "index": int(parts[0]),
+                        "filename": parts[1],
+                        "chunks": int(parts[2]),
+                        "uploaded_at": parts[3],
+                    })
+                except (ValueError, IndexError):
+                    pass
+    return entries
+
+
 def _add_knowledge_entry(filename: str, chunks: int):
     if not KNOWLEDGE_FILE.exists():
         KNOWLEDGE_FILE.write_text(
@@ -61,6 +82,27 @@ def _add_knowledge_entry(filename: str, chunks: int):
     KNOWLEDGE_FILE.write_text(content, encoding="utf-8")
 
 
+def _delete_knowledge_entry(index: int) -> bool:
+    if not KNOWLEDGE_FILE.exists():
+        return False
+    lines = KNOWLEDGE_FILE.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    deleted = False
+    for line in lines:
+        if line.startswith("|") and "序号" not in line and "---" not in line:
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            try:
+                if int(parts[0]) == index:
+                    deleted = True
+                    continue
+            except (ValueError, IndexError):
+                pass
+        new_lines.append(line)
+    if deleted:
+        KNOWLEDGE_FILE.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    return deleted
+
+
 # ============================================================
 # API Routes
 # ============================================================
@@ -71,27 +113,66 @@ async def upload_file(file: UploadFile = File(...)):
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    loop = asyncio.get_event_loop()
-    try:
-        service = RAGPipelineService(model_name="dashscope")
-        try:
-            prepared = await loop.run_in_executor(None, service.ingest_file, str(dest))
-            chunks_count = len(prepared.chunks)
-        finally:
-            service.close()
+    async def progress_stream():
+        def on_progress(msg: str, current: int, total: int):
+            pct = round(current / total * 100) if total > 0 else 0
+            progress_queue.put_nowait({"stage": msg, "current": current, "total": total, "percent": pct})
 
-        _add_knowledge_entry(filename, chunks_count)
-        return {"status": "ok", "filename": filename, "chunks": chunks_count}
-    except Exception as e:
-        logger.error(f"Ingest error: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+        progress_queue: asyncio.Queue = asyncio.Queue()
+
+        async def run_ingest():
+            loop = asyncio.get_event_loop()
+            try:
+                service = RAGPipelineService(model_name="dashscope")
+                try:
+                    prepared = await loop.run_in_executor(
+                        None, lambda: service.ingest_file(str(dest), on_progress=on_progress)
+                    )
+                    chunks_count = len(prepared.chunks)
+                    _add_knowledge_entry(filename, chunks_count)
+                    await progress_queue.put({"stage": "完成", "current": 1, "total": 1, "percent": 100,
+                                              "done": True, "filename": filename, "chunks": chunks_count})
+                finally:
+                    service.close()
+            except Exception as e:
+                logger.error(f"Ingest error: {e}")
+                await progress_queue.put({"stage": f"错误: {e}", "current": 0, "total": 1, "percent": 0,
+                                          "done": True, "error": str(e)})
+
+        task = asyncio.create_task(run_ingest())
+
+        # Save file stage
+        yield _sse("progress", {"stage": "保存文件", "current": 1, "total": 1, "percent": 5})
+
+        while True:
+            try:
+                data = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                yield _sse("progress", data)
+                if data.get("done"):
+                    break
+            except asyncio.TimeoutError:
+                # Send heartbeat to keep connection alive
+                if task.done():
+                    break
+
+    return StreamingResponse(
+        progress_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/knowledge")
 async def get_knowledge():
-    if not KNOWLEDGE_FILE.exists():
-        return {"content": "暂无已入库的课本"}
-    return {"content": KNOWLEDGE_FILE.read_text(encoding="utf-8")}
+    return {"entries": _read_knowledge_entries()}
+
+
+@app.delete("/api/knowledge/{index}")
+async def delete_knowledge(index: int):
+    deleted = _delete_knowledge_entry(index)
+    if not deleted:
+        return JSONResponse(status_code=404, content={"error": "not found"})
+    return {"status": "ok"}
 
 
 @app.get("/api/images/{path:path}")
