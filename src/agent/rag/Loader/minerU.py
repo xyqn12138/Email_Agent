@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import pypdf
@@ -265,12 +266,32 @@ class MinerUParser:
             # Physically split PDF to avoid MinerU file size limit
             part_files = self._split_pdf(file_path, page_ranges, temp_dir)
 
-            for idx, (part_file, pr) in enumerate(zip(part_files, page_ranges), 1):
-                part_output = target_dir / f"part_{idx}"
-                part_dirs.append(part_output)
-                logger.info(f"--- Processing batch {idx}/{num_parts}: pages {pr} ---")
-                self._parse_single(part_file, part_output)
+            # Prepare output dirs (maintain order by index)
+            for idx in range(1, num_parts + 1):
+                part_dirs.append(target_dir / f"part_{idx}")
 
+            # Upload all batches in parallel
+            def _process_batch(idx: int):
+                part_file = part_files[idx - 1]
+                pr = page_ranges[idx - 1]
+                part_output = part_dirs[idx - 1]
+                logger.info(f"--- Batch {idx}/{num_parts}: pages {pr} START ---")
+                self._parse_single(part_file, part_output)
+                logger.info(f"--- Batch {idx}/{num_parts}: pages {pr} DONE ---")
+                return idx
+
+            max_workers = min(num_parts, 4)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_process_batch, i): i for i in range(1, num_parts + 1)}
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Batch {idx} failed: {e}")
+                        raise
+
+            # Merge results (part_dirs is already ordered by index)
             merged_md = target_dir / f"{file_path.stem}.md"
             self._merge_markdowns(part_dirs, merged_md)
 
