@@ -179,24 +179,44 @@ async def delete_knowledge(index: int):
 
 @app.get("/api/images/{path:path}")
 async def serve_image(path: str):
-    # Path from DB is like "data/python数据挖掘/images/xxx.jpg" or "images/xxx.jpg"
-    img_path = Path(path)
-    if not img_path.is_absolute():
-        img_path = DATA_DIR.parent / path  # project_root / path
-    if not img_path.exists() or not img_path.is_file():
-        # Fallback: search by filename
-        filename = Path(path).name
+    from fastapi.responses import FileResponse, Response
+    # Try multiple path resolutions
+    candidates = [
+        DATA_DIR.parent / path,                    # project_root/images/xxx.jpg (legacy)
+        DATA_DIR / path,                           # data/images/xxx.jpg
+    ]
+    # Also try stripping leading "images/" and searching in data subdirs
+    filename = Path(path).name
+    for book_dir in DATA_DIR.iterdir():
+        if book_dir.is_dir():
+            candidates.append(book_dir / "images" / filename)
+
+    img_path = None
+    for c in candidates:
+        if c.exists() and c.is_file():
+            img_path = c
+            break
+
+    # Fallback: recursive search
+    if not img_path:
         matches = list(DATA_DIR.rglob(filename))
         img_path = matches[0] if matches else None
-    if not img_path or not img_path.exists() or not img_path.is_file():
-        return JSONResponse(status_code=404, content={"error": "image not found"})
+
+    if not img_path or not img_path.exists():
+        # Return 1x1 transparent PNG instead of 404
+        transparent_png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\xf3\xffa\x00\x00\x00\nIDATx\x9cc\x00\x01"
+            b"\x00\x00\x05\x00\x01\r\n\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        return Response(content=transparent_png, media_type="image/png")
+
     suffix = img_path.suffix.lower()
     media_types = {
         ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
         ".gif": "image/gif", ".bmp": "image/bmp", ".webp": "image/webp", ".svg": "image/svg+xml",
     }
     media_type = media_types.get(suffix, "application/octet-stream")
-    from fastapi.responses import FileResponse
     return FileResponse(str(img_path), media_type=media_type)
 
 
@@ -268,14 +288,17 @@ async def chat(request: Request):
         got_tokens = False
         final_content = ""
         thinking_steps: list[dict] = []
-        has_tools = False
-        thinking_done_sent = False
+        # Track content length at each tool start — reasoning text accumulates
+        # between tools, and the answer is everything after the last tool's position
+        last_tool_content_len = 0
 
         try:
             async for event in graph.astream_events(input_msg, config=config, version="v2"):
                 kind = event.get("event", "")
 
                 if kind == "on_tool_start":
+                    # Content before this tool call is reasoning
+                    last_tool_content_len = len(final_content)
                     tool_name = event.get("name", "")
                     tool_input = event.get("data", {}).get("input", {})
                     if isinstance(tool_input, str):
@@ -293,7 +316,6 @@ async def chat(request: Request):
                     elif isinstance(tool_input, str):
                         detail = tool_input[:120]
                     thinking_steps.append({"tool": display_name, "detail": detail, "result": ""})
-                    has_tools = True
                     yield _sse("thinking", {"tool": display_name, "detail": detail})
 
                 elif kind == "on_tool_end":
@@ -314,21 +336,18 @@ async def chat(request: Request):
                     elif hasattr(chunk, "content"):
                         text = chunk.content or ""
                     if text:
-                        # First token after tools = thinking is done
-                        if has_tools and not thinking_done_sent:
-                            thinking_done_sent = True
-                            yield _sse("thinking_done", {"steps": len(thinking_steps)})
                         got_tokens = True
                         final_content += text
                         yield _sse("token", {"text": text})
 
                 elif kind == "on_chat_model_end":
-                    # Capture final content from LLM output as fallback
-                    output = event.get("data", {}).get("output", {})
-                    if hasattr(output, "content"):
-                        final_content = output.content or ""
-                    elif isinstance(output, dict):
-                        final_content = output.get("content", "")
+                    # Only use as fallback if no tokens were streamed
+                    if not got_tokens:
+                        output = event.get("data", {}).get("output", {})
+                        if hasattr(output, "content"):
+                            final_content = output.content or ""
+                        elif isinstance(output, dict):
+                            final_content = output.get("content", "")
 
                 elif kind == "on_chain_end":
                     # Capture from chain output if still no tokens
@@ -353,6 +372,10 @@ async def chat(request: Request):
             chunk_size = 10
             for i in range(0, len(final_content), chunk_size):
                 yield _sse("token", {"text": final_content[i:i + chunk_size]})
+
+        # Send thinking_done with the split position (content before last tool = reasoning)
+        if thinking_steps:
+            yield _sse("thinking_done", {"steps": len(thinking_steps), "split": last_tool_content_len})
 
         # Update assistant message with final content
         answer = final_content or ""

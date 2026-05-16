@@ -332,48 +332,61 @@ async function send(){
     const hist=c.msgs.slice(0,-1).filter(m=>m.role==='user'||(m.role==='ai'&&m.content)).map(m=>({role:m.role==='ai'?'assistant':m.role,content:m.content}));
     const sendId=curId.startsWith('_pending_')?'':curId;
     const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,history:hist,conv_id:sendId})});
+    if(!res.ok){const errText=await res.text().catch(()=>res.statusText);throw new Error(`服务端错误 ${res.status}: ${errText.slice(0,200)}`)}
     const reader=res.body.getReader(),dec=new TextDecoder();let buf='';
-    let toolCount=0,answerStarted=false,phaseTimer=null,answerStartIdx=0;
+    // All tokens go to m.content. answerSplit tracks where answer starts (-1 = not yet)
+    let answerSplit=-1;
     const m=c.msgs[ai];
-    const startAnswer=()=>{if(answerStarted)return;answerStarted=true;if(phaseTimer){clearTimeout(phaseTimer);phaseTimer=null}
-      if(m.thinking.length&&answerStartIdx>0){
-        const reasoning=m.content.slice(0,answerStartIdx);
-        if(reasoning)m.thinking[m.thinking.length-1].reasoning=reasoning;
-        m.content=m.content.slice(answerStartIdx);
-      }
-      upd(ai,m)};
     while(true){const{done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});
       const lines=buf.split('\n');buf=lines.pop()||'';let evt=null;
       for(const ln of lines){if(ln.startsWith('event: '))evt=ln.slice(7).trim();
         else if(ln.startsWith('data: ')&&evt){let d;try{d=JSON.parse(ln.slice(6))}catch{continue}
-          if(evt==='thinking'){if(phaseTimer){clearTimeout(phaseTimer);phaseTimer=null}
-            if(m.content&&m.thinking.length){m.thinking[m.thinking.length-1].reasoning=m.content;m.content=''}
-            m.thinking.push({tool:d.tool,detail:d.detail||'',result:'',reasoning:''});toolCount++;answerStarted=false;upd(ai,m)}
-          else if(evt==='tool_result'){if(m.thinking.length){m.thinking[m.thinking.length-1].result=d.output||'';upd(ai,m)}
-            if(phaseTimer)clearTimeout(phaseTimer);phaseTimer=setTimeout(startAnswer,1500)}
-          else if(evt==='token'){m.content+=d.text;if(!answerStarted&&toolCount>0){if(phaseTimer)clearTimeout(phaseTimer);phaseTimer=setTimeout(startAnswer,1500)}upd(ai,m)}
-          else if(evt==='thinking_done'){answerStartIdx=m.content.length;startAnswer()}
-          else if(evt==='done'){if(!answerStarted)startAnswer();if(d.conv_id&&curId.startsWith('_pending_')){const oldId=curId;curId=d.conv_id;convs[curId]=convs[oldId];delete convs[oldId];renderList()}}
-          else if(evt==='error'){m.content+=`\n\n❌ ${d.message}`;upd(ai,m)}
+          if(evt==='thinking'){
+            answerSplit=-1;
+            m.thinking.push({tool:d.tool,detail:d.detail||'',result:'',reasoning:''});
+            upd(ai,m,answerSplit)}
+          else if(evt==='tool_result'){
+            if(m.thinking.length)m.thinking[m.thinking.length-1].result=d.output||'';
+            upd(ai,m,answerSplit)}
+          else if(evt==='token'){
+            m.content+=d.text;upd(ai,m,answerSplit)}
+          else if(evt==='thinking_done'){
+            answerSplit=d.split!==undefined?d.split:m.content.length;
+            upd(ai,m,answerSplit)}
+          else if(evt==='done'){
+            upd(ai,m,answerSplit);
+            if(d.conv_id&&curId.startsWith('_pending_')){const oldId=curId;curId=d.conv_id;convs[curId]=convs[oldId];delete convs[oldId];renderList()}}
+          else if(evt==='error'){m.content+=`\n\n❌ ${d.message}`;upd(ai,m,answerSplit)}
           evt=null;}}}
-    if(phaseTimer)clearTimeout(phaseTimer);if(!answerStarted)startAnswer();
-  }catch(e){c.msgs[ai].content=`❌ 请求失败: ${e.message}`;upd(ai,c.msgs[ai])}
+    upd(ai,m,answerSplit);
+  }catch(e){c.msgs[ai].content=`❌ 请求失败: ${e.message}`;upd(ai,c.msgs[ai],-1)}
   streaming=false;document.getElementById('sndBtn').disabled=false;document.getElementById('inp').focus();
 }
-function upd(idx,m){
+
+function upd(idx,m,split){
+  try{
   const els=document.querySelectorAll('#msgs .msg-a');let n=0;const c=convs[curId];
   for(let i=0;i<=idx;i++)if(c.msgs[i].role==='ai')n++;const el=els[n-1];if(!el)return;
+  const s=typeof split==='number'?split:-1;
+  let reasoning='',answer='';
+  if(s>=0&&m.content){reasoning=m.content.slice(0,s);answer=m.content.slice(s);}
+  else if(m.content){answer=m.content;}
+
   const hasThinking=m.thinking&&m.thinking.length>0;
-  const answerPhase=hasThinking&&m.content&&!streaming?true:hasThinking&&m.thinking.every(s=>s.reasoning||s.result)&&m.content?true:!hasThinking&&m.content?true:false;
+  const hasAnswer=!!answer;
+
   let th='';
-  if(hasThinking){const stepsHtml=renderSteps(m.thinking,answerPhase);
-    if(answerPhase)th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${m.thinking.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
+  if(hasThinking){
+    const steps=m.thinking.map((st,i)=>(i===m.thinking.length-1&&reasoning)?{...st,reasoning}:st);
+    const stepsHtml=renderSteps(steps,hasAnswer);
+    if(hasAnswer)th=`<div class="think"><div class="think-h" onclick="toggleTh(this)"><span class="arr">▶</span>思考过程 (${steps.length} 步)</div><div class="think-b">${stepsHtml}</div></div>`;
     else th=`<div class="think"><div class="think-h"><div class="spin"></div><span>思考中...</span></div><div class="think-b open">${stepsHtml}</div></div>`}
-  const html=m.content?renderImages(marked.parse(m.content)):'';
-  const cur=streaming&&m.content?'cur':'';
-  const dim=!answerPhase&&hasThinking&&m.content?'thinking-phase':'';
-  el.querySelector('.bod').innerHTML=th+`<div class="ans ${cur} ${dim}">${html}</div>`;
+  const parsed=answer?marked.parse(answer):'';
+  const html=parsed?renderImages(parsed):'';
+  const cur=streaming&&hasAnswer?'cur':'';
+  el.querySelector('.bod').innerHTML=th+`<div class="ans ${cur}">${html}</div>`;
   expandImgRefs(el.querySelector('.bod'));scrollBtm();
+  }catch(e){console.error('upd error:',e)}
 }
 
 /* ===== Knowledge Base ===== */
@@ -434,15 +447,13 @@ async function doUpload(file){
 
 /* ===== Images ===== */
 function renderImages(html){
-  // 1. Markdown image syntax: ![alt](path)
-  html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(alt,path)=>{
-    if(path.startsWith('http'))return`<img src="${path}" alt="${alt}" onclick="viewImg(this.src)">`;
-    return`<img src="/api/images/${encodeURIComponent(path)}" alt="${alt}" onclick="viewImg(this.src)">`});
-  // 2. Bare image paths from agent (e.g., "包含图片: images/xxx.jpg;images/yyy.jpg")
-  const imgExts=/\b([\w\-\/\.]+\.(?:jpg|jpeg|png|gif|bmp|webp|svg))\b/gi;
-  html=html.replace(imgExts,(match,path)=>{
-    if(path.startsWith('http')||path.startsWith('/api/'))return match;
-    return`<img src="/api/images/${encodeURIComponent(path)}" alt="${path}" style="max-width:300px;max-height:200px;border-radius:8px;cursor:pointer;margin:4px" onclick="viewImg(this.src)">`});
+  try{
+    html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(alt,path)=>{
+      if(path.startsWith('http'))return`<img src="${path}" alt="${alt}" onclick="viewImg(this.src)">`;
+      return`<img src="/api/images/${encodeURIComponent(path)}" alt="${alt}" onclick="viewImg(this.src)">`});
+    html=html.replace(/(^|[^"'=])(images\/[A-Za-z0-9_\-]+\.(?:jpg|jpeg|png|gif|bmp|webp|svg))/gi,
+      (match,prefix,path)=>`${prefix}<img src="/api/images/${encodeURIComponent(path)}" alt="图片" style="max-width:300px;max-height:200px;border-radius:8px;cursor:pointer;margin:4px" onclick="viewImg(this.src)">`);
+  }catch(e){console.warn('renderImages error:',e)}
   return html;
 }
 function expandImgRefs(el){el.querySelectorAll('.img-grid img').forEach(img=>{img.onclick=()=>viewImg(img.src)})}
