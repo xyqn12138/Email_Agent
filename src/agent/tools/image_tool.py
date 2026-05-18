@@ -45,6 +45,12 @@ def view_image(image_path: str) -> str:
     filename = Path(image_path).name
     abs_path = _find_image(filename)
 
+    # Path traversal guard: ensure resolved path is within data/
+    data_dir = (Path(get_project_root()) / "data").resolve()
+    if abs_path and not abs_path.resolve().is_relative_to(data_dir):
+        logger.warning(f"[Security] Image path traversal blocked: {image_path}")
+        return "拒绝访问：图片路径不在知识库范围内。"
+
     if abs_path is None:
         return (
             f"图片不存在: {image_path}\n"

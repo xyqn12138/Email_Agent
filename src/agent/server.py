@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from agent.graph import build_graph
 from agent.persistence import get_store
 from agent.rag.data_embedding import RAGPipelineService
+from agent.security import check_message
 from agent.utils.logger_handler import get_logger
 from agent.utils.path_handler import get_absolute_path
 
@@ -202,6 +203,11 @@ async def serve_image(path: str):
         matches = list(DATA_DIR.rglob(filename))
         img_path = matches[0] if matches else None
 
+    # Path traversal guard: ensure resolved path is within DATA_DIR
+    if img_path and not img_path.resolve().is_relative_to(DATA_DIR.resolve()):
+        logger.warning(f"[Security] Image path traversal blocked: {path}")
+        img_path = None
+
     if not img_path or not img_path.exists():
         # Return 1x1 transparent PNG instead of 404
         transparent_png = (
@@ -293,6 +299,17 @@ async def chat(request: Request):
         last_tool_content_len = 0
 
         try:
+            # Security check before invoking the graph
+            sec_result = await check_message(message, history)
+            if not sec_result.passed:
+                yield _sse("token", {"text": sec_result.reason})
+                try:
+                    store.update_message(assistant_msg_id, sec_result.reason)
+                except Exception as e:
+                    logger.error(f"Failed to save rejection message: {e}")
+                yield _sse("done", {"conv_id": conv_id})
+                return
+
             async for event in graph.astream_events(input_msg, config=config, version="v2"):
                 kind = event.get("event", "")
 
